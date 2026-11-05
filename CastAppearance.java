@@ -449,8 +449,8 @@ public final class CastAppearance {
             super();
             apply(this);
             Dimension desktop = Toolkit.getDefaultToolkit().getScreenSize();
-            super.setMinimumSize(new Dimension(420, 520));
-            super.setSize(480, Math.min(880, desktop.height - 100));
+            super.setMinimumSize(new Dimension(640, 480));
+            super.setSize(Math.min(780, desktop.width - 80), Math.min(900, desktop.height - 100));
             setLocationRelativeTo(null);
             setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -484,6 +484,47 @@ public final class CastAppearance {
         label.setFont(new Font("Dialog", weight, size));
         label.setForeground(color);
         return label;
+    }
+
+    private static JPanel buttonGrid(JButton... buttons) {
+        JPanel grid = new JPanel(new GridLayout(0, 2, 8, 8));
+        grid.setOpaque(false);
+        for (JButton button : buttons) {
+            button.setPreferredSize(new Dimension(124, 36));
+            button.setFont(new Font("Dialog", Font.PLAIN, 12));
+            button.setHorizontalAlignment(SwingConstants.LEFT);
+            button.setMargin(new Insets(6, 8, 6, 8));
+            grid.add(button);
+        }
+        return grid;
+    }
+
+    private static void addControlSection(JPanel panel, String title, JButton... buttons) {
+        JPanel section = new JPanel(new BorderLayout(0, 8));
+        section.setOpaque(false);
+        section.setBorder(new EmptyBorder(0, 0, 18, 0));
+        section.add(label(title, 12, Font.BOLD, MUTED), BorderLayout.NORTH);
+        section.add(buttonGrid(buttons), BorderLayout.CENTER);
+        section.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(section);
+    }
+
+    /** Keep connection, recording and macro status readable within the fixed sidebar. */
+    private static final class StatusLabel extends JLabel {
+        StatusLabel() {
+            setFont(new Font("Dialog", Font.PLAIN, 11));
+            setForeground(MUTED);
+            setVerticalAlignment(SwingConstants.TOP);
+            setText("等待连接");
+        }
+        @Override public void setText(String text) {
+            String value = text == null ? "" : text;
+            super.setText("<html><div style='width:236px'>"
+                + value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                + "</div></html>");
+            setToolTipText(value);
+            getAccessibleContext().setAccessibleName(value);
+        }
     }
 
     private static void apply(Window window) {
@@ -646,8 +687,7 @@ public final class CastAppearance {
         shell.setBackground(SURFACE);
         JPanel header = new JPanel(new BorderLayout(12, 12));
         header.setBackground(Color.WHITE);
-        header.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 0, 1, 0, LINE), new EmptyBorder(16, 20, 14, 20)));
+        header.setBorder(new EmptyBorder(18, 16, 16, 16));
 
         JPanel identity = new JPanel(new BorderLayout(10, 0));
         identity.setOpaque(false);
@@ -658,9 +698,8 @@ public final class CastAppearance {
         words.add(label("手机画面，实时同步", 11, Font.PLAIN, MUTED));
         identity.add(mark, BorderLayout.WEST);
         identity.add(words, BorderLayout.CENTER);
-        JLabel status = label("等待连接", 11, Font.PLAIN, MUTED);
+        JLabel status = new StatusLabel();
         status.setIcon(new StatusDot(MUTED));
-        identity.add(status, BorderLayout.EAST);
         header.add(identity, BorderLayout.NORTH);
         for (ActionListener listener : originalStart.getActionListeners()) {
             originalStart.removeActionListener(listener);
@@ -685,7 +724,7 @@ public final class CastAppearance {
                 return result;
             }
         });
-        connection.add(label("手机设备", 12, Font.PLAIN, MUTED), BorderLayout.WEST);
+        connection.add(label("手机设备", 12, Font.PLAIN, MUTED), BorderLayout.NORTH);
         connection.add(devices, BorderLayout.CENTER);
         devices.addItemListener(event -> {
             if (window.refreshingDevices || event.getStateChange() != ItemEvent.SELECTED) return;
@@ -702,8 +741,6 @@ public final class CastAppearance {
                 }
             }
         });
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        actions.setOpaque(false);
         refresh.setText("");
         refresh.setIcon(new LineIcon("refresh", MUTED, 18));
         refresh.setToolTipText("刷新设备");
@@ -765,10 +802,6 @@ public final class CastAppearance {
         files.setPreferredSize(new Dimension(36, 36));
         files.setFocusable(false);
         files.addActionListener(event -> transferFiles(window, devices, status, files));
-        actions.add(files);
-        actions.add(shot);
-        actions.add(rec);
-        actions.add(pin);
         JButton forward = new JButton(new LineIcon("forward", INK, 18));
         forward.setToolTipText("把手机上的端口映射到电脑，如 localhost:8080 → 手机 80");
         forward.getAccessibleContext().setAccessibleName("端口转发");
@@ -918,40 +951,24 @@ public final class CastAppearance {
             new EmptyBorder(0, 0, 0, 0)));
         light.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         light.setVisible(false);
-        actions.add(forward);
-        actions.add(install);
-        actions.add(settings);
-        actions.add(layout);
-        actions.add(type);
-        actions.add(paste);
-        actions.add(copyText, 0);
-        actions.add(timed);
-        actions.add(frame);
-        actions.add(macroRec);
-        actions.add(macroPlay);
-        actions.add(lights);
-        JPanel deviceActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        deviceActions.setOpaque(false);
-        deviceActions.add(refresh);
-        deviceActions.add(start);
-        connection.add(deviceActions, BorderLayout.EAST);
+        refresh.setText("刷新设备");
+        JPanel deviceActions = buttonGrid(refresh, start);
+        connection.add(deviceActions, BorderLayout.SOUTH);
         JPanel rows = new JPanel();
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
         rows.setOpaque(false);
+        status.setAlignmentX(Component.LEFT_ALIGNMENT);
+        status.setMaximumSize(new Dimension(268, 64));
+        rows.add(status);
+        rows.add(Box.createVerticalStrut(12));
+        connection.setAlignmentX(Component.LEFT_ALIGNMENT);
+        connection.setMaximumSize(new Dimension(268, 94));
         rows.add(connection);
-        rows.add(Box.createVerticalStrut(6));
-        rows.add(actions);
         header.add(rows, BorderLayout.CENTER);
-        shell.add(header, BorderLayout.NORTH);
 
         PhoneStage stage = new PhoneStage(display, light);
+        stage.setName("phoneStage");
         shell.add(stage, BorderLayout.CENTER);
-        JPanel footer = new JPanel(new BorderLayout(0, 10));
-        footer.setBackground(Color.WHITE);
-        footer.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, LINE), new EmptyBorder(12, 20, 12, 20)));
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-        controls.setOpaque(false);
         String[] fields = {"btnBack", "btnVolumeDown", "btnVolumeUp", "btnPower"};
         String[] icons = {"back", "volumeDown", "volumeUp", "power"};
         String[] titles = {"返回", "降低音量", "提高音量", "锁屏 / 唤醒"};
@@ -965,7 +982,6 @@ public final class CastAppearance {
             button.setPreferredSize(new Dimension(48, 36));
             button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             button.setFocusable(false);
-            controls.add(button);
             controlButtons[i] = button;
         }
         JButton home = new JButton(new LineIcon("home", INK, 20));
@@ -974,21 +990,18 @@ public final class CastAppearance {
         home.getAccessibleContext().setAccessibleName("回桌面");
         home.setFocusable(false);
         home.addActionListener(event -> phoneKey(window, status, "Home"));
-        controls.add(home);
         JButton recents = new JButton(new LineIcon("recents", INK, 20));
         recents.setPreferredSize(new Dimension(48, 36));
         recents.setToolTipText("最近任务");
         recents.getAccessibleContext().setAccessibleName("最近任务");
         recents.setFocusable(false);
         recents.addActionListener(event -> openRecents(window, status));
-        controls.add(recents);
         JButton unlock = new JButton(new LineIcon("unlock", INK, 20));
         unlock.setPreferredSize(new Dimension(48, 36));
         unlock.setToolTipText("解锁（唤醒 + 上滑，检测到密码键盘时自动输入）");
         unlock.getAccessibleContext().setAccessibleName("解锁");
         unlock.setFocusable(false);
         unlock.addActionListener(event -> unlockPhone(window, rotating, status, unlock));
-        controls.add(unlock);
         JButton enlarge = new JButton(new LineIcon("expand", INK, 20));
         enlarge.setPreferredSize(new Dimension(48, 36));
         enlarge.setToolTipText("放大 / 还原窗口");
@@ -996,7 +1009,6 @@ public final class CastAppearance {
         enlarge.setFocusable(false);
         enlarge.addActionListener(event -> window.setExtendedState(
             (window.getExtendedState() & JFrame.MAXIMIZED_BOTH) != 0 ? JFrame.NORMAL : JFrame.MAXIMIZED_BOTH));
-        controls.add(enlarge);
         JButton rotate = new JButton(new LineIcon("rotate", INK, 20));
         rotate.setPreferredSize(new Dimension(48, 36));
         rotate.setToolTipText("旋转画面");
@@ -1006,14 +1018,9 @@ public final class CastAppearance {
         rotate.addActionListener(event -> {
             viewRotation[0] = (viewRotation[0] + 90) % 360;
             rotating.setViewRotation(viewRotation[0]);
-            boolean landscape = viewRotation[0] == 90 || viewRotation[0] == 270;
-            if ((window.getExtendedState() & JFrame.MAXIMIZED_BOTH) == 0) {
-                Dimension size = window.getSize();
-                boolean tall = size.height > size.width;
-                if (tall != landscape) window.setSize(size.height, size.width);
-            }
+            stage.revalidate();
+            stage.repaint();
         });
-        controls.add(rotate);
         JButton deviceH = new JButton(new LineIcon("landscape", INK, 20));
         deviceH.setPreferredSize(new Dimension(48, 36));
         deviceH.setToolTipText("设备端旋转为横屏");
@@ -1026,10 +1033,6 @@ public final class CastAppearance {
         deviceV.getAccessibleContext().setAccessibleName("设备端竖屏");
         deviceV.setFocusable(false);
         deviceV.addActionListener(event -> deviceRotation(window, status, false));
-        controls.add(deviceH);
-        controls.add(deviceV);
-        JPanel gestures = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
-        gestures.setOpaque(false);
         String[] gestureIcons = {"up", "down", "left", "right"};
         String[] gestureTips = {"快速上滑（下拉刷新 / 返回）", "快速下滑", "快速左滑（横向翻页）", "快速右滑"};
         int[] gestureDirs = {2, 3, 0, 1};
@@ -1043,15 +1046,47 @@ public final class CastAppearance {
             button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             button.setFocusable(false);
             button.addActionListener(event -> swipeDirection(window, status, dir));
-            gestures.add(button);
             gestureButtons[i] = button;
         }
-        footer.add(gestures, BorderLayout.NORTH);
-        footer.add(controls, BorderLayout.CENTER);
-        JLabel hint = label("点击操作 · 拖动滑动 · ⌥点击长按 · 拖入文件传输", 11, Font.PLAIN, MUTED);
-        hint.setHorizontalAlignment(SwingConstants.CENTER);
-        footer.add(hint, BorderLayout.SOUTH);
-        shell.add(footer, BorderLayout.SOUTH);
+        JButton[] labeledButtons = {home, recents, controlButtons[0], unlock, controlButtons[1],
+            controlButtons[2], controlButtons[3], rotate, enlarge, pin, lights, deviceH, deviceV,
+            shot, rec, frame, timed, copyText, type, paste, layout, files, forward, install,
+            settings, macroRec, macroPlay, gestureButtons[0], gestureButtons[1], gestureButtons[2], gestureButtons[3]};
+        String[] buttonTitles = {"回桌面", "最近任务", "返回", "解锁", "降低音量", "提高音量", "锁屏 / 唤醒",
+            "旋转画面", "放大 / 还原", "窗口置顶", "关灯模式", "设备横屏", "设备竖屏",
+            "保存截图", "屏幕录制", "刷新画面", "定时截图", "复制画面文字", "发送文本", "粘贴", "控件树",
+            "文件传输", "端口转发", "安装应用", "投屏设置", "录制宏", "回放宏", "上滑", "下滑", "左滑", "右滑"};
+        for (int i = 0; i < labeledButtons.length; i++) labeledButtons[i].setText(buttonTitles[i]);
+        JPanel tools = new JPanel();
+        tools.setLayout(new BoxLayout(tools, BoxLayout.Y_AXIS));
+        tools.setBackground(Color.WHITE);
+        tools.setBorder(new EmptyBorder(4, 16, 0, 16));
+        addControlSection(tools, "导航与按键", home, recents, controlButtons[0], unlock,
+            controlButtons[1], controlButtons[2], controlButtons[3]);
+        addControlSection(tools, "滑动手势", gestureButtons);
+        addControlSection(tools, "画面与窗口", rotate, enlarge, pin, lights, deviceH, deviceV);
+        addControlSection(tools, "截图与录屏", shot, rec, frame, timed);
+        addControlSection(tools, "文字与控件", copyText, type, paste, layout);
+        addControlSection(tools, "文件与工具", files, forward, install, settings, macroRec, macroPlay);
+        JLabel hint = label("<html>点击操作 · 拖动滑动<br>⌥点击长按 · 拖入文件传输</html>", 11, Font.PLAIN, MUTED);
+        hint.setBorder(new EmptyBorder(0, 0, 16, 0));
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        tools.add(hint);
+        JPanel scrollingTools = new JPanel(new BorderLayout());
+        scrollingTools.setBackground(Color.WHITE);
+        scrollingTools.add(tools, BorderLayout.NORTH);
+        JScrollPane toolScroll = new JScrollPane(scrollingTools,
+            ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        toolScroll.setBorder(BorderFactory.createEmptyBorder());
+        toolScroll.getVerticalScrollBar().setUnitIncrement(24);
+        JPanel sidebar = new JPanel(new BorderLayout());
+        sidebar.setName("controlSidebar");
+        sidebar.setBackground(Color.WHITE);
+        sidebar.setPreferredSize(new Dimension(300, 0));
+        sidebar.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, LINE));
+        sidebar.add(header, BorderLayout.NORTH);
+        sidebar.add(toolScroll, BorderLayout.CENTER);
+        shell.add(sidebar, BorderLayout.EAST);
         window.setContentPane(shell);
         window.fileDrops = new FileDropTransfer(window, () -> {
             CaptureRecovery.Target active = window.recovery.target();
@@ -1069,8 +1104,7 @@ public final class CastAppearance {
         final Rectangle[] lastWindowBounds = {null};
         Consumer<Boolean> setLights = on -> {
             darkMode[0] = !on;
-            header.setVisible(on);
-            footer.setVisible(on);
+            sidebar.setVisible(on);
             shell.setBackground(on ? SURFACE : new Color(0x05070A));
             stage.setDark(!on);
             window.setTitle(on ? "鸿蒙投屏" : "鸿蒙投屏 · 关灯模式（按 ESC 开灯）");
@@ -2473,7 +2507,8 @@ public final class CastAppearance {
             this.display = display;
             this.lightButton = lightButton;
             setBackground(SURFACE);
-            display.setBackground(new Color(0x151D26));
+            display.setBackground(SURFACE);
+            display.setBorder(null);
             add(display);
             add(lightButton);
         }
@@ -2492,8 +2527,8 @@ public final class CastAppearance {
                 GraphicsConfiguration config = getGraphicsConfiguration();
                 if (config != null) topInset = Toolkit.getDefaultToolkit().getScreenInsets(config).top;
             }
-            int availableWidth = Math.max(1, getWidth() - (dark ? 20 : 56));
-            int availableHeight = Math.max(1, getHeight() - (dark ? 20 + topInset : 44));
+            int availableWidth = Math.max(1, getWidth() - (dark ? 20 : 0));
+            int availableHeight = Math.max(1, getHeight() - (dark ? 20 + topInset : 0));
             int width = Math.max(1, (int) Math.min(availableWidth, availableHeight * ratio));
             int height = Math.max(1, (int) (width / ratio));
             display.setBounds((getWidth() - width) / 2, (getHeight() - height) / 2, width, height);
@@ -2505,15 +2540,6 @@ public final class CastAppearance {
             super.paintComponent(graphics);
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Rectangle b = display.getBounds();
-            if (!dark) {
-                for (int i = 14; i >= 1; i--) {
-                    g.setColor(new Color(25, 40, 60, 3));
-                    g.fillRoundRect(b.x - i, b.y - i + 6, b.width + i * 2, b.height + i * 2, 32 + i, 32 + i);
-                }
-            }
-            g.setColor(dark ? new Color(0x141A22) : new Color(0x243140));
-            g.fillRoundRect(b.x - 3, b.y - 3, b.width + 6, b.height + 6, 30, 30);
             if (dark && lightButton.isVisible()) {
                 String tip = "点击右下角 ☀ 开灯 · 或按 ESC";
                 g.setFont(new Font("Dialog", Font.PLAIN, 13));
@@ -2528,16 +2554,12 @@ public final class CastAppearance {
                 Component child = getComponent(i);
                 if (!child.isVisible()) continue;
                 Rectangle r = child.getBounds();
-                if (child == lightButton) {
-                    Graphics cg = graphics.create(r.x, r.y, r.width, r.height);
-                    child.paint(cg);
-                    cg.dispose();
-                    continue;
+                Graphics2D cg = (Graphics2D) graphics.create(r.x, r.y, r.width, r.height);
+                if (child == display) {
+                    cg.clip(new RoundRectangle2D.Double(0, 0, r.width, r.height, 25, 25));
                 }
-                Graphics2D g = (Graphics2D) graphics.create(r.x, r.y, r.width, r.height);
-                g.clip(new RoundRectangle2D.Double(0, 0, r.width, r.height, 25, 25));
-                child.paint(g);
-                g.dispose();
+                child.paint(cg);
+                cg.dispose();
             }
         }
     }

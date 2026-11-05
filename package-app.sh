@@ -80,3 +80,4 @@ if [[ -e "$CAST_PROJECT/dist/$CAST_APP_NAME.app" ]]; then
 fi
 mv "$CAST_APP" "$CAST_PROJECT/dist/$CAST_APP_NAME.app"
 echo "已生成：$CAST_PROJECT/dist/$CAST_APP_NAME.app"
+bash "$CAST_PROJECT/scripts/sync-desktop-app.sh" "$CAST_DEP_ARCH"
