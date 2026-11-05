@@ -699,6 +699,7 @@ public final class CastAppearance {
         identity.add(mark, BorderLayout.WEST);
         identity.add(words, BorderLayout.CENTER);
         JLabel status = new StatusLabel();
+        rotating.setArrowSwipe(direction -> swipeDirection(window, status, direction));
         status.setIcon(new StatusDot(MUTED));
         header.add(identity, BorderLayout.NORTH);
         for (ActionListener listener : originalStart.getActionListeners()) {
@@ -1034,7 +1035,7 @@ public final class CastAppearance {
         deviceV.setFocusable(false);
         deviceV.addActionListener(event -> deviceRotation(window, status, false));
         String[] gestureIcons = {"up", "down", "left", "right"};
-        String[] gestureTips = {"快速上滑（下拉刷新 / 返回）", "快速下滑", "快速左滑（横向翻页）", "快速右滑"};
+        String[] gestureTips = {"快速上滑（↑ 方向键）", "快速下滑（↓ 方向键）", "快速左滑（← 方向键）", "快速右滑（→ 方向键）"};
         int[] gestureDirs = {2, 3, 0, 1};
         final JButton[] gestureButtons = new JButton[4];
         for (int i = 0; i < 4; i++) {
@@ -1068,7 +1069,7 @@ public final class CastAppearance {
         addControlSection(tools, "截图与录屏", shot, rec, frame, timed);
         addControlSection(tools, "文字与控件", copyText, type, paste, layout);
         addControlSection(tools, "文件与工具", files, forward, install, settings, macroRec, macroPlay);
-        JLabel hint = label("<html>点击操作 · 拖动滑动<br>⌥点击长按 · 拖入文件传输</html>", 11, Font.PLAIN, MUTED);
+        JLabel hint = label("<html>点击操作 · 拖动滑动<br>↑↓←→ 对应方向滑动<br>⌥点击长按 · 拖入文件传输</html>", 11, Font.PLAIN, MUTED);
         hint.setBorder(new EmptyBorder(0, 0, 16, 0));
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
         tools.add(hint);
@@ -2579,6 +2580,8 @@ public final class CastAppearance {
     /** Rotates every incoming frame for a landscape display; input coordinates are un-rotated by RotatingDevice. */
     static final class RotatingMultiFunctionLabel extends MultiFunctionLabel {
         interface FrameSink { void onFrame(BufferedImage image); }
+        private Consumer<Integer> arrowSwipe;
+        private final boolean[] arrowsHeld = new boolean[4];
         private BufferedImage source;
         private BufferedImage display;
         private String ownTip = "";
@@ -2589,6 +2592,42 @@ public final class CastAppearance {
         private int framesInWindow;
         private long windowStart = System.currentTimeMillis();
 
+        void setArrowSwipe(Consumer<Integer> swipe) { arrowSwipe = swipe; }
+        @Override protected void processKeyEvent(KeyEvent event) {
+            int direction = switch (event.getKeyCode()) {
+                case KeyEvent.VK_LEFT -> 0;
+                case KeyEvent.VK_RIGHT -> 1;
+                case KeyEvent.VK_UP -> 2;
+                case KeyEvent.VK_DOWN -> 3;
+                default -> -1;
+            };
+            if (direction >= 0) {
+                if (event.getID() == KeyEvent.KEY_RELEASED && arrowsHeld[direction]) {
+                    arrowsHeld[direction] = false;
+                    event.consume();
+                    return;
+                }
+                if (event.getID() == KeyEvent.KEY_PRESSED && event.getModifiersEx() == 0
+                        && isScreenCapturingMode() && arrowSwipe != null) {
+                    // One swipe per press; auto-repeat must not queue a long trail of gestures.
+                    if (!arrowsHeld[direction]) {
+                        arrowsHeld[direction] = true;
+                        arrowSwipe.accept(direction);
+                    }
+                    event.consume();
+                    return;
+                }
+            }
+            super.processKeyEvent(event);
+        }
+        @Override protected void processFocusEvent(java.awt.event.FocusEvent event) {
+            if (event.getID() == java.awt.event.FocusEvent.FOCUS_LOST) java.util.Arrays.fill(arrowsHeld, false);
+            super.processFocusEvent(event);
+        }
+        @Override public void setScreenCapturingMode(boolean capturing) {
+            if (!capturing && arrowsHeld != null) java.util.Arrays.fill(arrowsHeld, false);
+            super.setScreenCapturingMode(capturing);
+        }
         void setViewRotation(int rotation) {
             viewRotation = rotation;
             if (source != null) setImage(source);
