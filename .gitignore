@@ -1,0 +1,8 @@
+/dist/
+/build/
+/.app-build.*/
+# Local downloads and development tools; see README for setup on another Mac.
+/vendor/HOScrcpy/
+/vendor/HOScrcpy.zip
+/vendor/arm64/
+/vendor/intel/
