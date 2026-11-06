@@ -1183,7 +1183,7 @@ public final class CastAppearance {
                 }
             } else {
                 try {
-                    setUndecoratedQuietly(window, false, lastWindowBounds[0]);
+                    setUndecoratedQuietly(window, sidebarCollapsed[0], lastWindowBounds[0]);
                 } catch (RuntimeException error) {
                     System.err.println("退出关灯模式失败: " + error);
                 }
@@ -1195,6 +1195,27 @@ public final class CastAppearance {
         };
         lights.addActionListener(event -> setLights.accept(darkMode[0]));
         light.addActionListener(event -> setLights.accept(true));
+        JPopupMenu windowMenu = new JPopupMenu();
+        JMenuItem expandWindow = new JMenuItem("展开菜单");
+        expandWindow.addActionListener(event -> {
+            if (darkMode[0]) setLights.accept(true);
+            if (sidebarCollapsed[0]) sidebarToggle.doClick();
+        });
+        windowMenu.add(expandWindow);
+        JMenuItem pinWindow = new JMenuItem("窗口置顶 / 取消");
+        pinWindow.addActionListener(event -> pin.doClick());
+        windowMenu.add(pinWindow);
+        JMenuItem minimizeWindow = new JMenuItem("缩小窗口");
+        minimizeWindow.addActionListener(event -> window.setExtendedState(JFrame.ICONIFIED));
+        windowMenu.add(minimizeWindow);
+        JMenuItem closeWindow = new JMenuItem("关闭投屏");
+        closeWindow.addActionListener(event -> window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING)));
+        windowMenu.add(closeWindow);
+        windowMenu.addSeparator();
+        JMenuItem dragHint = new JMenuItem("⌘ 拖动画面可移动窗口");
+        dragHint.setEnabled(false);
+        windowMenu.add(dragHint);
+        rotating.setWindowControls(window, windowMenu, () -> sidebarCollapsed[0] && !darkMode[0]);
         window.getRootPane().registerKeyboardAction(event -> {
             if (darkMode[0]) setLights.accept(true);
         }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -2597,7 +2618,7 @@ public final class CastAppearance {
         }
     }
 
-    /** Toggles window decorations without stopping the status timer; used by 关灯模式. */
+    /** Toggle decorations without stopping capture, keyboard bindings or status updates. */
     private static void setUndecoratedQuietly(Window window, boolean undecorated, Rectangle bounds) {
         if (window.isUndecorated() == undecorated) {
             if (bounds != null) window.setBounds(bounds);
@@ -2630,12 +2651,12 @@ public final class CastAppearance {
             this.display = display;
         }
         void update(boolean collapsed, boolean dark) {
-            if (dark) return;
+            if (dark || (window.getExtendedState() & JFrame.ICONIFIED) != 0) return;
             if (!collapsed) {
                 if (expandedBounds != null) {
                     window.setMinimumSize(expandedMinimum);
                     window.setExtendedState(JFrame.NORMAL);
-                    window.setBounds(expandedBounds);
+                    setUndecoratedQuietly(window, false, expandedBounds);
                     window.setExtendedState(expandedState);
                     expandedBounds = null;
                 }
@@ -2645,7 +2666,17 @@ public final class CastAppearance {
                 expandedBounds = window.getBounds();
                 expandedMinimum = window.getMinimumSize();
                 expandedState = window.getExtendedState();
+                Insets decoration = window.getInsets();
+                Rectangle contentBounds = new Rectangle(expandedBounds);
+                contentBounds.x += decoration.left;
+                contentBounds.y += decoration.top;
+                contentBounds.width -= decoration.left + decoration.right;
+                contentBounds.height -= decoration.top + decoration.bottom;
+                window.setMinimumSize(new Dimension(160, 240));
+                window.setExtendedState(JFrame.NORMAL);
+                setUndecoratedQuietly(window, true, contentBounds);
             }
+            if (!window.isUndecorated()) setUndecoratedQuietly(window, true, window.getBounds());
             if (window.getExtendedState() != JFrame.NORMAL) window.setExtendedState(JFrame.NORMAL);
             BufferedImage image = display.getImage();
             if (image != null) ratio = (double) image.getWidth() / image.getHeight();
@@ -2742,19 +2773,6 @@ public final class CastAppearance {
             }
             if (overlayRail != null) overlayRail.setBounds(Math.max(0, getWidth() - 16), 0, 16, getHeight());
         }
-        @Override protected void paintComponent(Graphics graphics) {
-            super.paintComponent(graphics);
-            Graphics2D g = (Graphics2D) graphics.create();
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            if (dark && lightButton.isVisible()) {
-                String tip = "点击右下角 ☀ 开灯 · 或按 ESC";
-                g.setFont(new Font("Dialog", Font.PLAIN, 13));
-                g.setColor(new Color(255, 255, 255, 170));
-                int tipWidth = g.getFontMetrics().stringWidth(tip);
-                g.drawString(tip, (getWidth() - tipWidth) / 2, getHeight() - 22);
-            }
-            g.dispose();
-        }
     }
 
     /** A quiet edge chevron, like a web sidebar rail, with a small hover target. */
@@ -2799,6 +2817,12 @@ public final class CastAppearance {
     static final class RotatingMultiFunctionLabel extends MultiFunctionLabel {
         interface FrameSink { void onFrame(BufferedImage image); }
         private Consumer<Integer> arrowSwipe;
+        private Window controlledWindow;
+        private JPopupMenu windowMenu;
+        private java.util.function.BooleanSupplier windowDraggable;
+        private Point windowDragStart;
+        private Point windowDragOrigin;
+        private boolean windowPopupGesture;
         private final boolean[] arrowsHeld = new boolean[4];
         private BufferedImage source;
         private BufferedImage display;
@@ -2811,6 +2835,52 @@ public final class CastAppearance {
         private long windowStart = System.currentTimeMillis();
 
         void setArrowSwipe(Consumer<Integer> swipe) { arrowSwipe = swipe; }
+        void setWindowControls(Window window, JPopupMenu menu, java.util.function.BooleanSupplier draggable) {
+            controlledWindow = window;
+            windowMenu = menu;
+            setComponentPopupMenu(menu);
+            windowDraggable = draggable;
+        }
+        @Override public JPopupMenu getComponentPopupMenu() {
+            return controlledWindow != null && controlledWindow.isUndecorated() ? windowMenu : null;
+        }
+        @Override protected void processMouseEvent(java.awt.event.MouseEvent event) {
+            if (event.getID() == java.awt.event.MouseEvent.MOUSE_RELEASED
+                    && (windowDragStart != null || windowPopupGesture)) {
+                windowDragStart = windowDragOrigin = null;
+                windowPopupGesture = false;
+                event.consume();
+                return;
+            }
+            if (event.getID() == java.awt.event.MouseEvent.MOUSE_PRESSED) {
+                windowPopupGesture = false;
+                if (controlledWindow != null && controlledWindow.isUndecorated()) {
+                    if (event.isPopupTrigger() || SwingUtilities.isRightMouseButton(event)) {
+                        windowPopupGesture = true;
+                        windowMenu.show(this, event.getX(), event.getY());
+                        event.consume();
+                        return;
+                    }
+                    if (event.isMetaDown() && SwingUtilities.isLeftMouseButton(event) && windowDraggable.getAsBoolean()) {
+                        windowDragStart = event.getLocationOnScreen();
+                        windowDragOrigin = controlledWindow.getLocation();
+                        event.consume();
+                        return;
+                    }
+                }
+            }
+            super.processMouseEvent(event);
+        }
+        @Override protected void processMouseMotionEvent(java.awt.event.MouseEvent event) {
+            if (event.getID() == java.awt.event.MouseEvent.MOUSE_DRAGGED && windowDragStart != null) {
+                Point current = event.getLocationOnScreen();
+                controlledWindow.setLocation(windowDragOrigin.x + current.x - windowDragStart.x,
+                    windowDragOrigin.y + current.y - windowDragStart.y);
+                event.consume();
+                return;
+            }
+            super.processMouseMotionEvent(event);
+        }
         @Override protected void processKeyEvent(KeyEvent event) {
             int direction = switch (event.getKeyCode()) {
                 case KeyEvent.VK_LEFT -> 0;

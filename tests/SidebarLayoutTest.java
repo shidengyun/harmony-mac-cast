@@ -105,6 +105,7 @@ public final class SidebarLayoutTest {
                 layout(window, stage, sidebar, display);
                 screenshot(window, output.resolve("sidebar-default.png"));
                 Rectangle original = window.getBounds();
+                int originalTitlebarHeight = window.getInsets().top + window.getInsets().bottom;
                 JButton pin = (JButton) named(sidebar, "pinWindow");
                 check(window.isAlwaysOnTopSupported(), "platform must support keeping the window on top");
                 pin.doClick();
@@ -116,6 +117,7 @@ public final class SidebarLayoutTest {
                     toggle.doClick();
                     window.validate(); stage.doLayout();
                     check(!sidebar.isVisible(), "collapse must hide the entire menu");
+                    check(window.isUndecorated(), "compact phone window must hide titlebar without entering fullscreen");
                     check(Color.BLACK.equals(stage.getBackground()) && Color.BLACK.equals(rail.getBackground()),
                         "collapsed phone area and toggle rail must use a black lights-out background");
                     check(Color.WHITE.equals(display.getForeground()), "empty-frame hints must remain readable on black");
@@ -124,8 +126,8 @@ public final class SidebarLayoutTest {
                     check(Math.abs(stage.getWidth() - display.getWidth()) <= 1, "compact window must fit phone width without side padding");
                     check(toggle.isShowing() && rail.getWidth() == 16, "compact expand entry must remain reachable");
                     check(toggle.getToolTipText().equals("展开右侧菜单"), "toggle must offer expansion when collapsed");
-                    check(window.getWidth() < original.width && window.getHeight() == original.height,
-                        "portrait collapse must shrink width while preserving height");
+                    check(window.getWidth() < original.width && window.getHeight() == original.height - originalTitlebarHeight,
+                        "compact window must preserve phone height while removing titlebar height");
                     rail.doLayout();
                     Point target = SwingUtilities.convertPoint(toggle, toggle.getWidth() / 2, toggle.getHeight() / 2, stage);
                     check(SwingUtilities.getDeepestComponentAt(stage, target.x, target.y) == toggle,
@@ -133,9 +135,40 @@ public final class SidebarLayoutTest {
                     check(SwingUtilities.getDeepestComponentAt(stage, stage.getWidth() - 8, stage.getHeight() / 4) == display,
                         "phone edge must still receive input outside the small overlay arrow");
                     if (i == 0) screenshot(window, output.resolve("sidebar-collapsed.png"));
+                    if (i == 0) {
+                        java.util.concurrent.atomic.AtomicInteger phoneEvents = new java.util.concurrent.atomic.AtomicInteger();
+                        java.awt.event.MouseAdapter observer = new java.awt.event.MouseAdapter() {
+                            @Override public void mousePressed(java.awt.event.MouseEvent event) { phoneEvents.incrementAndGet(); }
+                            @Override public void mouseReleased(java.awt.event.MouseEvent event) { phoneEvents.incrementAndGet(); }
+                            @Override public void mouseDragged(java.awt.event.MouseEvent event) { phoneEvents.incrementAndGet(); }
+                        };
+                        display.addMouseListener(observer); display.addMouseMotionListener(observer);
+                        Point origin = window.getLocation();
+                        Point mouse = display.getLocationOnScreen(); mouse.translate(20, 40);
+                        int commandDrag = java.awt.event.InputEvent.META_DOWN_MASK | java.awt.event.InputEvent.BUTTON1_DOWN_MASK;
+                        display.processMouseEvent(new java.awt.event.MouseEvent(display, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                            0, commandDrag, 20, 40, mouse.x, mouse.y, 1, false, java.awt.event.MouseEvent.BUTTON1));
+                        display.processMouseMotionEvent(new java.awt.event.MouseEvent(display, java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                            0, commandDrag, 55, 60, mouse.x + 35, mouse.y + 20, 0, false, java.awt.event.MouseEvent.NOBUTTON));
+                        display.processMouseEvent(new java.awt.event.MouseEvent(display, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                            0, java.awt.event.InputEvent.META_DOWN_MASK, 55, 60, mouse.x + 35, mouse.y + 20, 1, false,
+                            java.awt.event.MouseEvent.BUTTON1));
+                        check(window.getLocation().equals(new Point(origin.x + 35, origin.y + 20)), "Command drag must move frameless window");
+                        check(phoneEvents.get() == 0, "window dragging must not send phone touch events");
+                        display.processMouseEvent(new java.awt.event.MouseEvent(display, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                            0, java.awt.event.InputEvent.BUTTON3_DOWN_MASK, 20, 40, mouse.x, mouse.y, 1, true,
+                            java.awt.event.MouseEvent.BUTTON3));
+                        check(display.getComponentPopupMenu().isVisible(), "frameless window must expose an action menu on right click");
+                        display.getComponentPopupMenu().setVisible(false);
+                        display.processMouseEvent(new java.awt.event.MouseEvent(display, java.awt.event.MouseEvent.MOUSE_RELEASED,
+                            0, 0, 20, 40, mouse.x, mouse.y, 1, false, java.awt.event.MouseEvent.BUTTON3));
+                        check(phoneEvents.get() == 0, "window menu must not send phone touches");
+                        display.removeMouseListener(observer); display.removeMouseMotionListener(observer);
+                    }
                     toggle.doClick();
                     layout(window, stage, sidebar, display);
                     check(window.getBounds().equals(original), "expanding must restore original window bounds");
+                    check(!window.isUndecorated(), "expanding must restore native titlebar and window controls");
                     check(CastAppearance.SURFACE.equals(stage.getBackground()), "expanding menu must restore normal background");
                     check(toggle.getToolTipText().equals("收起右侧菜单"), "same toggle must offer collapse when expanded");
                 }
