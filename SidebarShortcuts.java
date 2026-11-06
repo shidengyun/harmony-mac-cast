@@ -39,6 +39,7 @@ final class SidebarShortcuts implements AutoCloseable {
     void register(String id, JButton button) { actions.put(id, button); }
 
     private String actionTitle(String id) {
+        if (id.equals("pin")) return "窗口置顶 / 取消";
         return id.equals("toggleSidebar") ? "收起 / 展开菜单" : actions.get(id).getText();
     }
 

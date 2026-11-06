@@ -46,8 +46,8 @@ public final class SidebarLayoutTest {
         Point sidebarPosition = SwingUtilities.convertPoint(sidebar.getParent(), sidebar.getLocation(), window.getContentPane());
         check(stage.getX() + stage.getWidth() == railPosition.x, "toggle rail must start at the screen edge");
         check(railPosition.x + rail.getWidth() == sidebarPosition.x, "toggle rail must sit between screen and controls");
-        check(rail.getWidth() == 24 && toggle.getWidth() == 24 && toggle.getHeight() == 48,
-            "toggle must remain a compact 24px-wide control");
+        check(rail.getWidth() == 16 && toggle.getWidth() == 16 && toggle.getHeight() == 32,
+            "toggle must remain a small, borderless edge chevron");
         check(sidebar.getWidth() == 300, "sidebar must keep its width when resizing");
         Rectangle frame = display.getBounds();
         check(frame.width > 0 && frame.height > 0, "frame must stay visible");
@@ -105,26 +105,45 @@ public final class SidebarLayoutTest {
                 layout(window, stage, sidebar, display);
                 screenshot(window, output.resolve("sidebar-default.png"));
                 Rectangle original = window.getBounds();
+                JButton pin = (JButton) named(sidebar, "pinWindow");
+                check(window.isAlwaysOnTopSupported(), "platform must support keeping the window on top");
+                pin.doClick();
+                check(window.isAlwaysOnTop() && pin.isSelected() && "已置顶".equals(pin.getText()),
+                    "pin control must enable native always-on-top and show active state");
                 JButton toggle = (JButton) named(window.getContentPane(), "sidebarToggle");
                 JPanel rail = (JPanel) named(window.getContentPane(), "sidebarRail");
                 for (int i = 0; i < 3; i++) {
                     toggle.doClick();
                     window.validate(); stage.doLayout();
                     check(!sidebar.isVisible(), "collapse must hide the entire menu");
-                    check(stage.getWidth() == window.getContentPane().getWidth() - 24, "collapsed screen must reclaim sidebar space except narrow toggle rail");
-                    check(toggle.isShowing() && rail.getWidth() == 24, "compact expand entry must remain reachable");
+                    check(Color.BLACK.equals(stage.getBackground()) && Color.BLACK.equals(rail.getBackground()),
+                        "collapsed phone area and toggle rail must use a black lights-out background");
+                    check(Color.WHITE.equals(display.getForeground()), "empty-frame hints must remain readable on black");
+                    check(window.isAlwaysOnTop(), "collapsing menu must preserve window pinning");
+                    check(stage.getWidth() == window.getContentPane().getWidth(), "collapsed arrow must not add window width");
+                    check(Math.abs(stage.getWidth() - display.getWidth()) <= 1, "compact window must fit phone width without side padding");
+                    check(toggle.isShowing() && rail.getWidth() == 16, "compact expand entry must remain reachable");
                     check(toggle.getToolTipText().equals("展开右侧菜单"), "toggle must offer expansion when collapsed");
-                    check(window.getBounds().equals(original), "collapse must preserve window bounds");
+                    check(window.getWidth() < original.width && window.getHeight() == original.height,
+                        "portrait collapse must shrink width while preserving height");
+                    rail.doLayout();
+                    Point target = SwingUtilities.convertPoint(toggle, toggle.getWidth() / 2, toggle.getHeight() / 2, stage);
+                    check(SwingUtilities.getDeepestComponentAt(stage, target.x, target.y) == toggle,
+                        "overlay arrow must receive clicks above the phone frame");
+                    check(SwingUtilities.getDeepestComponentAt(stage, stage.getWidth() - 8, stage.getHeight() / 4) == display,
+                        "phone edge must still receive input outside the small overlay arrow");
                     if (i == 0) screenshot(window, output.resolve("sidebar-collapsed.png"));
                     toggle.doClick();
                     layout(window, stage, sidebar, display);
+                    check(window.getBounds().equals(original), "expanding must restore original window bounds");
+                    check(CastAppearance.SURFACE.equals(stage.getBackground()), "expanding menu must restore normal background");
                     check(toggle.getToolTipText().equals("收起右侧菜单"), "same toggle must offer collapse when expanded");
                 }
                 window.setBounds(original.x, original.y, 640, 480);
                 layout(window, stage, sidebar, display);
-                JButton playback = button(sidebar, "回放宏");
-                playback.scrollRectToVisible(new Rectangle(0, 0, playback.getWidth(), playback.getHeight()));
-                JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, playback);
+                JButton lowerControl = button(sidebar, "快捷键设置");
+                lowerControl.scrollRectToVisible(new Rectangle(0, 0, lowerControl.getWidth(), lowerControl.getHeight()));
+                JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, lowerControl);
                 check(scroll.getVerticalScrollBar().getValue() > 0, "small window must scroll to lower controls");
                 check(scroll.getHorizontalScrollBarPolicy() == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
                     "sidebar must fit without horizontal scrolling");
@@ -150,14 +169,21 @@ public final class SidebarLayoutTest {
                 check(window.getBounds().equals(original), "fullscreen exit must restore window bounds");
                 layout(window, stage, sidebar, display);
                 toggle.doClick();
+                window.validate(); stage.doLayout();
+                Rectangle compactBounds = window.getBounds();
                 button(sidebar, "关灯模式").doClick();
                 check(!toggle.isShowing(), "dark mode must hide the toggle rail");
                 light.doClick();
                 window.validate(); stage.doLayout();
                 check(!sidebar.isVisible() && toggle.isShowing(), "dark mode exit must preserve collapsed menu");
-                check(window.getBounds().equals(original), "dark mode exit must preserve collapsed window bounds");
+                check(window.getBounds().equals(compactBounds), "dark mode exit must preserve compact window bounds");
+                check(Math.abs(stage.getWidth() - display.getWidth()) <= 1, "landscape compact window must also fit phone width");
+                check(window.isAlwaysOnTop(), "dark mode exit must preserve window pinning");
                 toggle.doClick();
                 layout(window, stage, sidebar, display);
+                pin.doClick();
+                check(!window.isAlwaysOnTop() && !pin.isSelected() && "窗口置顶".equals(pin.getText()),
+                    "pin control must cancel native always-on-top and restore its label");
                 final Throwable[] settingsError = {null};
                 final boolean[] settingsSeen = {false};
                 Timer closeSettings = new Timer(250, event -> {

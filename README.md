@@ -16,11 +16,11 @@ App 内置 Java 17 与 `hdc`，不依赖本机 DevEco Studio 或 Java 安装路�
 
 多台手机同时使用时，下拉列表会列出已连接设备及记忆的 Wi-Fi 地址，选择要投屏的那台即可。程序每 4 秒检查设备（投屏期间也会检查）；USB 手机接入后，会自动读取 WLAN 地址、准备无线调试，并把对应的 Wi-Fi 地址加入列表。拔线或重启 App 后，地址仍可选择；选择 Wi-Fi 地址时会尝试建立无线连接，成功投屏后更新下次启动的优先目标。同一台手机换 Wi-Fi 后再次插线，会更新它的地址。USB 与 Wi-Fi 地址的对应关系保存在配置目录的 `usb-wireless-devices.properties` 中；手机和 Mac 仍需处于可互通的局域网。
 
-窗口采用左右布局：左侧完整用于手机画面，保留圆角，不添加外围黑框或阴影；右侧集中放置设备选择、连接状态和全部操作按钮。按钮按导航与按键、滑动手势、画面与窗口、截图与录屏、文字与控件、文件与工具分组；右侧可独立滚动，缩小窗口后仍能访问所有操作。手机画面与操作区之间有一个窄箭头按钮，点击可整体收起或展开右侧菜单；收起后手机画面使用腾出的空间，同一个箭头保留在窗口右侧供展开使用。进入并退出关灯模式会保留菜单原来的展开或收起状态。
+窗口采用左右布局：左侧完整用于手机画面，保留圆角，不添加外围黑框或阴影；右侧集中放置设备选择、连接状态和全部操作按钮。按钮按导航与按键、滑动手势、画面与窗口、截图与录屏、文字与控件、文件与工具分组；右侧可独立滚动，缩小窗口后仍能访问所有操作。手机画面与操作区之间有一个无边框的小尖角箭头，悬停时显示淡色背景，点击可整体收起或展开右侧菜单；收起后窗口宽度自动贴合手机画面的宽度，去掉两侧多余留白，并切换为黑色背景；展开箭头覆盖在画面右侧边缘，不额外占宽度。展开后恢复原来的窗口尺寸和背景，横竖屏变化时收起窗口也会跟随画面比例调整。进入并退出关灯模式会保留菜单原来的展开或收起状态。
 
-在手机画面上点击、拖动，或使用右侧的返回、音量和锁屏按钮。画面保持长宽比例，随窗口缩放；右侧「放大 / 还原」按钮可放大或还原窗口。关闭投屏窗口即退出程序；重新插线后重新启动，或在右侧刷新设备。
+在手机画面上点击、拖动，或使用右侧的返回、音量和锁屏按钮。画面保持长宽比例，随窗口缩放；右侧「放大 / 还原」按钮可放大或还原窗口。「画面与窗口」分组首位的「窗口置顶」按钮可将投屏窗口保持在其他普通应用窗口上方，开启后显示蓝色「已置顶」，再次点击取消；收起菜单或进出关灯模式时保留置顶状态。关闭投屏窗口即退出程序；重新插线后重新启动，或在右侧刷新设备。
 
-点击右侧顶部的「快捷键设置」，选择菜单操作，点击输入框并按下快捷键组合，再点击「设置」和「保存」。支持为右侧各个操作及菜单收起 / 展开配置快捷键，也可清除绑定；默认不预设快捷键。组合须包含 ⌘Command、⌃Control 或 ⌥Option，普通文字、无修饰的方向键、粘贴及常用编辑和系统组合保留原用途。重复绑定会提示冲突。配置保存在 `~/Library/Application Support/HarmonyCast/keyboard-shortcuts.properties`（设置 `CAST_STATE_DIR` 时使用该目录），保存后立即生效，重启后仍保留；菜单隐藏时仍可使用，弹窗中不会触发投屏操作，已禁用的操作不会被快捷键执行。
+点击右侧「文件与工具」分组中的「快捷键设置」，选择菜单操作，点击输入框并按下快捷键组合，再点击「设置」和「保存」。支持为右侧各个操作及菜单收起 / 展开配置快捷键，也可清除绑定；默认不预设快捷键。组合须包含 ⌘Command、⌃Control 或 ⌥Option，普通文字、无修饰的方向键、粘贴及常用编辑和系统组合保留原用途。重复绑定会提示冲突。配置保存在 `~/Library/Application Support/HarmonyCast/keyboard-shortcuts.properties`（设置 `CAST_STATE_DIR` 时使用该目录），保存后立即生效，重启后仍保留；菜单隐藏时仍可使用，弹窗中不会触发投屏操作，已禁用的操作不会被快捷键执行。
 
 投屏期间手机自动保持常亮，无需修改手机的自动锁屏设置。停止投屏、切换到另一台手机或正常退出 App 时会恢复系统息屏时间；手动按电源键或点击锁屏按钮仍可锁屏。常亮通过每 15 秒续期一次的临时 60 秒息屏时间实现，异常断连或强制结束进程后手机仍可自动息屏（重新连接并正常停止投屏可清除临时覆盖）。
 
@@ -128,7 +128,7 @@ CAST_TOOLCHAINS_PATH=vendor/intel/toolchains ./package-app.sh intel
 
 仍支持 `CAST_JAVA_PATH`、`CAST_HDC_PATH`、`CAST_OCR_PATH`、`CAST_TESSERACT_PATH`、`CAST_TESSDATA_PATH` 和 `CAST_STATE_DIR`；相对路径均以项目目录为基准，也可显式指定本机的绝对路径。桌面、影片、App 配置目录由系统用户目录动态确定；手机端的 `/data/local/tmp/` 是设备路径。
 
-图片识别默认使用 macOS Vision。可选 Tesseract 优先从项目依赖目录或 `PATH` 查找，模型目录需要包含 `chi_sim.traineddata`、`chi_tra.traineddata`、`eng.traineddata`。在 `PATH` 中安装 Tesseract 时，打包脚本从其语言列表读取模型目录；交叉打包应提供目标架构的 Tesseract 与模型。
+图片识别优先使用可用的 Tesseract，未提供对应架构的引擎或系统版本不满足其依赖时使用 macOS Vision。Tesseract 优先从项目依赖目录或 `PATH` 查找，模型目录需要包含 `chi_sim.traineddata`、`chi_tra.traineddata`、`eng.traineddata`。在 `PATH` 中安装 Tesseract 时，打包脚本从其语言列表读取模型目录；交叉打包应提供目标架构的 Tesseract 与模型。
 
 ## App 打包
 
@@ -136,11 +136,19 @@ CAST_TOOLCHAINS_PATH=vendor/intel/toolchains ./package-app.sh intel
 
 两个版本的启动器均以 macOS 13 为最低版本编译。Apple Silicon 版本已在本机验证；Intel 版本已通过 Rosetta 验证 x86_64 启动器、Java、USB 和 Wi-Fi 两种模式的实际投屏，均收到 1276 × 2848 的手机画面。Intel 真机上的运行情况仍需确认。当前签名用于本机运行，尚未经过 Developer ID 签名或 Apple 公证。
 
-文字复制新增的 Apple Silicon App 内置 Tesseract、本地依赖及简体中文、繁体中文、英文模型，无需额外安装 OCR 工具。本机已验证界面文本提取、框选识别、剪贴板复制及真实手机截图识别。Intel 打包可通过 `CAST_TESSERACT_PATH` 和 `CAST_TESSDATA_PATH` 指定匹配架构的识别引擎及模型；未提供时使用系统 Vision，新增图片识别能力尚未在 Intel 真机验证。`.command` 入口优先使用本机安装的 Tesseract，否则尝试系统 Vision。
+Apple Silicon 和 Intel 两个 App 都内置 Tesseract、本地依赖及简体中文、繁体中文、英文模型，无需额外安装 OCR 工具。Apple Silicon 版已在本机验证界面文本提取、框选识别、剪贴板复制及真实手机截图识别。Intel 版内置官方 Homebrew Ventura 的 Tesseract 5.5.1 和 16 个 x86_64 二进制文件，已通过 Rosetta 验证英文、简体中文、繁体中文图片识别与临时路径读取；尚未在 Intel 真机验证。`.command` 入口优先使用本机或项目依赖目录中的 Tesseract，否则尝试系统 Vision。
 
-当前内置 Tesseract 依赖要求 macOS 26.4 或更新版本；更旧系统自动改用系统 Vision，该回退尚未在旧系统实测。App 的投屏功能仍保持原来的 macOS 13 最低版本。
+Apple Silicon 版内置 Tesseract 依赖要求 macOS 26.4 或更新版本，Intel 版要求 macOS 13.0 或更新版本；系统版本不满足 OCR 依赖时自动使用 Vision，该回退尚未在旧系统实测。App 的投屏功能保持 macOS 13 最低版本。
 
 Intel 版使用 Azul Zulu OpenJDK 17.0.21.0.3 x86_64、OpenHarmony 6.1 Release 的 hdc 3.2.0c 与 `macosx-x86_64` FFmpeg 解码库。Java 下载包已核对官方 SHA-256：`6de9a31bd21c09b787781ce90d5791168b522c2213571d742141e610b81ff7fd`。
+
+重新准备 Intel OCR 依赖时，可运行：
+
+```bash
+python3 scripts/setup-intel-ocr.py --tessdata-dir /path/to/tessdata --proxy http://127.0.0.1:7890
+```
+
+模型目录需包含 `chi_sim.traineddata`、`chi_tra.traineddata` 和 `eng.traineddata`；不需要代理时省略 `--proxy`。脚本从 Homebrew 官方镜像下载固定版本的 Intel 包，校验 SHA-256，按实际动态库引用补齐依赖并改成可移动的加载路径。文件保存在 `vendor/intel/ocr-prefix/`，下载来源与校验值记录于其中的 `intel-ocr-manifest.json`；`vendor/intel/ocr/` 提供打包入口和模型。此后 `./package-app.sh intel` 会自动内置这些资源。可用 `bash tests/intel-ocr-test.sh` 验证最终 Intel App。
 
 Intel 构建依赖：
 

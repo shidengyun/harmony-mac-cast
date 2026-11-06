@@ -1,9 +1,17 @@
 import Foundation
 import Vision
 import ImageIO
+import Darwin
+
+// Foundation normalizes /private/tmp back to /tmp; older Intel Leptonica needs the physical path.
+func physicalPath(_ path: String) -> String {
+    guard let resolved = path.withCString({ realpath($0, nil) }) else { return path }
+    defer { free(resolved) }
+    return String(cString: resolved)
+}
 
 func recognizeWithTesseract(_ image: String) throws -> String? {
-    let adjacent = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+    let adjacent = URL(fileURLWithPath: physicalPath(CommandLine.arguments[0])).deletingLastPathComponent()
         .appendingPathComponent("ocr/tesseract")
     let environment = ProcessInfo.processInfo.environment
     let configured = environment["CAST_TESSERACT_PATH"].map { [$0] } ?? []
@@ -27,12 +35,13 @@ func recognizeWithTesseract(_ image: String) throws -> String? {
         return nil
     }
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: binary)
-    var arguments = [image, "stdout", "-l", "chi_sim+chi_tra+eng"]
+    process.executableURL = URL(fileURLWithPath: physicalPath(binary))
+    let imagePath = physicalPath(image)
+    var arguments = [imagePath, "stdout", "-l", "chi_sim+chi_tra+eng"]
     if binary == adjacent.path {
-        arguments += ["--tessdata-dir", adjacent.deletingLastPathComponent().appendingPathComponent("tessdata").path]
+        arguments += ["--tessdata-dir", physicalPath(adjacent.deletingLastPathComponent().appendingPathComponent("tessdata").path)]
     } else if let tessdata = environment["CAST_TESSDATA_PATH"] {
-        arguments += ["--tessdata-dir", tessdata]
+        arguments += ["--tessdata-dir", physicalPath(tessdata)]
     }
     process.arguments = arguments
     let output = Pipe(), errors = Pipe()

@@ -435,6 +435,7 @@ public final class CastAppearance {
         private volatile CaptureSession captureSession;
         private PhoneKeyboard keyboard;
         private SidebarShortcuts shortcuts;
+        private Runnable fitCollapsedWindow;
         private boolean unlockBusy;
         private final ExecutorService captureTasks = Executors.newSingleThreadExecutor(task -> {
             Thread thread = new Thread(task, "cast-session");
@@ -785,16 +786,22 @@ public final class CastAppearance {
             }
         });
         JButton pin = new JButton(new LineIcon("pin", INK, 18));
+        pin.setName("pinWindow");
         pin.setToolTipText("窗口置顶");
         pin.getAccessibleContext().setAccessibleName("窗口置顶或取消");
         pin.setPreferredSize(new Dimension(36, 36));
         pin.setFocusable(false);
-        pin.addActionListener(event -> {
-            boolean on = !window.isAlwaysOnTop();
-            window.setAlwaysOnTop(on);
+        Runnable updatePin = () -> {
+            boolean on = window.isAlwaysOnTop();
+            pin.setSelected(on);
             pin.setIcon(new LineIcon("pin", on ? BLUE : INK, 18));
+            pin.setText(on ? "已置顶" : "窗口置顶");
+            pin.setForeground(on ? BLUE : INK);
             pin.setToolTipText(on ? "取消置顶" : "窗口置顶");
-        });
+            pin.getAccessibleContext().setAccessibleName(on ? "取消窗口置顶" : "窗口置顶");
+        };
+        window.addPropertyChangeListener("alwaysOnTop", event -> updatePin.run());
+        pin.addActionListener(event -> window.setAlwaysOnTop(!window.isAlwaysOnTop()));
         JButton start = new JButton("开始投屏");
         start.setBackground(BLUE);
         start.setForeground(Color.WHITE);
@@ -1023,6 +1030,7 @@ public final class CastAppearance {
         rotate.addActionListener(event -> {
             viewRotation[0] = (viewRotation[0] + 90) % 360;
             rotating.setViewRotation(viewRotation[0]);
+            if (window.fitCollapsedWindow != null) window.fitCollapsedWindow.run();
             stage.revalidate();
             stage.repaint();
         });
@@ -1062,6 +1070,10 @@ public final class CastAppearance {
             "保存截图", "屏幕录制", "刷新画面", "定时截图", "复制画面文字", "发送文本", "粘贴", "控件树",
             "文件传输", "端口转发", "安装应用", "投屏设置", "录制宏", "回放宏", "上滑", "下滑", "左滑", "右滑"};
         for (int i = 0; i < labeledButtons.length; i++) labeledButtons[i].setText(buttonTitles[i]);
+        JButton shortcutSettings = new JButton("快捷键设置", new LineIcon("settings", INK, 16));
+        shortcutSettings.setName("shortcutSettings");
+        shortcutSettings.setFocusable(false);
+        shortcutSettings.addActionListener(event -> window.shortcuts.showSettings());
         JPanel tools = new JPanel();
         tools.setLayout(new BoxLayout(tools, BoxLayout.Y_AXIS));
         tools.setBackground(Color.WHITE);
@@ -1069,14 +1081,11 @@ public final class CastAppearance {
         addControlSection(tools, "导航与按键", home, recents, controlButtons[0], unlock,
             controlButtons[1], controlButtons[2], controlButtons[3]);
         addControlSection(tools, "滑动手势", gestureButtons);
-        addControlSection(tools, "画面与窗口", rotate, enlarge, pin, lights, deviceH, deviceV);
+        addControlSection(tools, "画面与窗口", pin, lights, rotate, enlarge, deviceH, deviceV);
+        updatePin.run();
         addControlSection(tools, "截图与录屏", shot, rec, frame, timed);
         addControlSection(tools, "文字与控件", copyText, type, paste, layout);
-        addControlSection(tools, "文件与工具", files, forward, install, settings, macroRec, macroPlay);
-        JLabel hint = label("<html>点击操作 · 拖动滑动<br>↑↓←→ 对应方向滑动<br>⌥点击长按 · 拖入文件传输</html>", 11, Font.PLAIN, MUTED);
-        hint.setBorder(new EmptyBorder(0, 0, 16, 0));
-        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        tools.add(hint);
+        addControlSection(tools, "文件与工具", files, forward, install, settings, macroRec, macroPlay, shortcutSettings);
         JPanel scrollingTools = new JPanel(new BorderLayout());
         scrollingTools.setBackground(Color.WHITE);
         scrollingTools.add(tools, BorderLayout.NORTH);
@@ -1091,25 +1100,25 @@ public final class CastAppearance {
         sidebar.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, LINE));
         sidebar.add(header, BorderLayout.NORTH);
         sidebar.add(toolScroll, BorderLayout.CENTER);
-        JButton sidebarToggle = new JButton(new LineIcon("right", INK, 12));
+        JButton sidebarToggle = new SidebarToggle();
         sidebarToggle.setName("sidebarToggle");
-        sidebarToggle.setPreferredSize(new Dimension(24, 48));
+        sidebarToggle.setPreferredSize(new Dimension(16, 32));
         sidebarToggle.setMargin(new Insets(0, 0, 0, 0));
         sidebarToggle.setFocusable(false);
         sidebarToggle.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        JPanel sidebarRail = new JPanel(new GridBagLayout());
+        JPanel sidebarRail = new JPanel(new GridBagLayout()) {
+            @Override public boolean contains(int x, int y) {
+                return isOpaque() || sidebarToggle.getBounds().contains(x, y);
+            }
+        };
         sidebarRail.setName("sidebarRail");
         sidebarRail.setBackground(SURFACE);
-        sidebarRail.setPreferredSize(new Dimension(24, 0));
+        sidebarRail.setPreferredSize(new Dimension(16, 0));
         sidebarRail.add(sidebarToggle);
         JPanel controlDock = new JPanel(new BorderLayout());
         controlDock.setName("controlDock");
         controlDock.add(sidebarRail, BorderLayout.WEST);
         controlDock.add(sidebar, BorderLayout.CENTER);
-        JPanel sidebarHeading = new JPanel(new BorderLayout(0, 12));
-        sidebarHeading.setOpaque(false);
-        sidebarHeading.add(identity, BorderLayout.CENTER);
-        header.add(sidebarHeading, BorderLayout.NORTH);
         shell.add(controlDock, BorderLayout.EAST);
         window.setContentPane(shell);
         window.fileDrops = new FileDropTransfer(window, () -> {
@@ -1125,10 +1134,24 @@ public final class CastAppearance {
         final GraphicsDevice screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
         final boolean[] darkMode = {false};
         final boolean[] sidebarCollapsed = {false};
+        SidebarWindowSize windowSizing = new SidebarWindowSize(window, display);
+        window.fitCollapsedWindow = () -> windowSizing.update(sidebarCollapsed[0], darkMode[0]);
         Runnable updateSidebar = () -> {
             sidebar.setVisible(!darkMode[0] && !sidebarCollapsed[0]);
-            controlDock.setVisible(!darkMode[0]);
-            sidebarToggle.setIcon(new LineIcon(sidebarCollapsed[0] ? "left" : "right", INK, 12));
+            controlDock.setVisible(!darkMode[0] && !sidebarCollapsed[0]);
+            if (sidebarCollapsed[0]) {
+                stage.setOverlayRail(sidebarRail);
+            } else {
+                stage.setOverlayRail(null);
+                if (sidebarRail.getParent() != controlDock) controlDock.add(sidebarRail, BorderLayout.WEST);
+            }
+            sidebarRail.setOpaque(!sidebarCollapsed[0]);
+            sidebarRail.setVisible(!darkMode[0]);
+            stage.setSidebarCollapsed(sidebarCollapsed[0]);
+            sidebarRail.setBackground(stage.getBackground());
+            shell.setBackground(stage.getBackground());
+            sidebarToggle.setIcon(new LineIcon(sidebarCollapsed[0] ? "chevronLeft" : "chevronRight",
+                Color.BLACK.equals(stage.getBackground()) ? new Color(0xA0ABB9) : MUTED, 12));
             String title = sidebarCollapsed[0] ? "展开右侧菜单" : "收起右侧菜单";
             sidebarToggle.setToolTipText(title);
             sidebarToggle.getAccessibleContext().setAccessibleName(title);
@@ -1138,6 +1161,7 @@ public final class CastAppearance {
         sidebarToggle.addActionListener(event -> {
             sidebarCollapsed[0] = !sidebarCollapsed[0];
             updateSidebar.run();
+            window.fitCollapsedWindow.run();
             display.requestFocusInWindow();
         });
         updateSidebar.run();
@@ -1145,9 +1169,8 @@ public final class CastAppearance {
         final Rectangle[] lastWindowBounds = {null};
         Consumer<Boolean> setLights = on -> {
             darkMode[0] = !on;
-            updateSidebar.run();
-            shell.setBackground(on ? SURFACE : new Color(0x05070A));
             stage.setDark(!on);
+            updateSidebar.run();
             window.setTitle(on ? "鸿蒙投屏" : "鸿蒙投屏 · 关灯模式（按 ESC 开灯）");
             if (!on) {
                 lastWindowState[0] = window.getExtendedState();
@@ -1168,6 +1191,7 @@ public final class CastAppearance {
                 if (lastWindowState[0] == JFrame.NORMAL) window.setBounds(lastWindowBounds[0]);
             }
             window.revalidate();
+            window.fitCollapsedWindow.run();
         };
         lights.addActionListener(event -> setLights.accept(darkMode[0]));
         light.addActionListener(event -> setLights.accept(true));
@@ -1181,11 +1205,6 @@ public final class CastAppearance {
         window.shortcuts.register("toggleCapture", start);
         // One binding toggles the entire menu, including when it is hidden.
         window.shortcuts.register("toggleSidebar", sidebarToggle);
-        JButton shortcutSettings = new JButton("快捷键设置", new LineIcon("settings", INK, 16));
-        shortcutSettings.setName("shortcutSettings");
-        shortcutSettings.setFocusable(false);
-        shortcutSettings.addActionListener(event -> window.shortcuts.showSettings());
-        sidebarHeading.add(shortcutSettings, BorderLayout.SOUTH);
         window.shortcuts.register("shortcutSettings", shortcutSettings);
         window.shortcuts.load();
         final long[] frameLogAt = {0};
@@ -1274,6 +1293,7 @@ public final class CastAppearance {
             }
             stage.revalidate();
             stage.repaint();
+            window.fitCollapsedWindow.run();
         });
         window.statusTimer.start();
     }
@@ -2597,10 +2617,70 @@ public final class CastAppearance {
         }
     }
 
+    /** Fit a compact window to the current phone aspect ratio and restore the expanded window. */
+    private static final class SidebarWindowSize {
+        private final Window window;
+        private final MultiFunctionLabel display;
+        private Rectangle expandedBounds;
+        private Dimension expandedMinimum;
+        private int expandedState;
+        private double ratio = 0.45;
+        SidebarWindowSize(Window window, MultiFunctionLabel display) {
+            this.window = window;
+            this.display = display;
+        }
+        void update(boolean collapsed, boolean dark) {
+            if (dark) return;
+            if (!collapsed) {
+                if (expandedBounds != null) {
+                    window.setMinimumSize(expandedMinimum);
+                    window.setExtendedState(JFrame.NORMAL);
+                    window.setBounds(expandedBounds);
+                    window.setExtendedState(expandedState);
+                    expandedBounds = null;
+                }
+                return;
+            }
+            if (expandedBounds == null) {
+                expandedBounds = window.getBounds();
+                expandedMinimum = window.getMinimumSize();
+                expandedState = window.getExtendedState();
+            }
+            if (window.getExtendedState() != JFrame.NORMAL) window.setExtendedState(JFrame.NORMAL);
+            BufferedImage image = display.getImage();
+            if (image != null) ratio = (double) image.getWidth() / image.getHeight();
+            Insets frame = window.getInsets();
+            GraphicsConfiguration config = window.getGraphicsConfiguration();
+            Rectangle usable = new Rectangle(config.getBounds());
+            Insets screen = Toolkit.getDefaultToolkit().getScreenInsets(config);
+            usable.x += screen.left; usable.y += screen.top;
+            usable.width -= screen.left + screen.right;
+            usable.height -= screen.top + screen.bottom;
+            int borderWidth = frame.left + frame.right;
+            int borderHeight = frame.top + frame.bottom;
+            int minimumHeight = Math.min(usable.height, Math.max(240, (int) Math.ceil(160 / ratio) + borderHeight));
+            Dimension minimum = new Dimension(160, minimumHeight);
+            if (!window.getMinimumSize().equals(minimum)) window.setMinimumSize(minimum);
+            int height = Math.max(minimumHeight, Math.min(window.getHeight(), usable.height));
+            int width = (int) ((height - borderHeight) * ratio) + borderWidth;
+            if (width > usable.width) {
+                width = usable.width;
+                height = (int) Math.ceil((width - borderWidth) / ratio) + borderHeight;
+            }
+            int x = Math.max(usable.x, Math.min(window.getX(), usable.x + usable.width - width));
+            int y = Math.max(usable.y, Math.min(window.getY(), usable.y + usable.height - height));
+            Rectangle compact = new Rectangle(x, y, width, height);
+            if (!window.getBounds().equals(compact)) window.setBounds(compact);
+        }
+    }
+
     private static final class PhoneStage extends JPanel {
         private final MultiFunctionLabel display;
         private final JButton lightButton;
         private boolean dark;
+        private boolean sidebarCollapsed;
+        private JPanel overlayRail;
+        private double imageRatio = 0.45;
         PhoneStage(MultiFunctionLabel display, JButton lightButton) {
             super(null);
             this.display = display;
@@ -2610,17 +2690,43 @@ public final class CastAppearance {
             display.setBorder(null);
             add(display);
             add(lightButton);
+            setComponentZOrder(lightButton, 0);
+            updateBackground();
         }
         void setDark(boolean dark) {
             this.dark = dark;
-            setBackground(dark ? new Color(0x05070A) : SURFACE);
+            updateBackground();
             lightButton.setVisible(dark);
             revalidate();
             repaint();
         }
+        void setSidebarCollapsed(boolean collapsed) {
+            sidebarCollapsed = collapsed;
+            updateBackground();
+        }
+        void setOverlayRail(JPanel rail) {
+            if (overlayRail == rail) return;
+            if (overlayRail != null) remove(overlayRail);
+            overlayRail = rail;
+            if (rail != null) {
+                add(rail);
+                setComponentZOrder(rail, 0);
+            }
+            revalidate();
+            repaint();
+        }
+        private void updateBackground() {
+            boolean lightsOut = dark || sidebarCollapsed;
+            setBackground(lightsOut ? Color.BLACK : SURFACE);
+            display.setBackground(getBackground());
+            display.setForeground(lightsOut ? Color.WHITE : INK);
+            repaint();
+            display.repaint();
+        }
         @Override public void doLayout() {
             BufferedImage image = display.getImage();
-            double ratio = image == null ? 0.45 : (double) image.getWidth() / image.getHeight();
+            if (image != null) imageRatio = (double) image.getWidth() / image.getHeight();
+            double ratio = imageRatio;
             int topInset = 0;
             if (dark) {
                 GraphicsConfiguration config = getGraphicsConfiguration();
@@ -2634,6 +2740,7 @@ public final class CastAppearance {
             if (lightButton.isVisible()) {
                 lightButton.setBounds(getWidth() - 54, getHeight() - 54, 44, 44);
             }
+            if (overlayRail != null) overlayRail.setBounds(Math.max(0, getWidth() - 16), 0, 16, getHeight());
         }
         @Override protected void paintComponent(Graphics graphics) {
             super.paintComponent(graphics);
@@ -2649,7 +2756,7 @@ public final class CastAppearance {
             g.dispose();
         }
         @Override protected void paintChildren(Graphics graphics) {
-            for (int i = 0; i < getComponentCount(); i++) {
+            for (int i = getComponentCount() - 1; i >= 0; i--) {
                 Component child = getComponent(i);
                 if (!child.isVisible()) continue;
                 Rectangle r = child.getBounds();
@@ -2660,6 +2767,32 @@ public final class CastAppearance {
                 child.paint(cg);
                 cg.dispose();
             }
+        }
+    }
+
+    /** A quiet edge chevron, like a web sidebar rail, with a small hover target. */
+    private static final class SidebarToggle extends JButton {
+        SidebarToggle() {
+            setBorder(null);
+            setBorderPainted(false);
+            setContentAreaFilled(false);
+            setOpaque(false);
+            setFocusPainted(false);
+            setRolloverEnabled(true);
+        }
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (getModel().isRollover() || getModel().isPressed()) {
+                boolean dark = getParent() != null && Color.BLACK.equals(getParent().getBackground());
+                g.setColor(dark ? new Color(getModel().isPressed() ? 0x303640 : 0x20242A)
+                    : getModel().isPressed() ? LINE : new Color(0xE9EEF5));
+                g.fillRoundRect(1, 4, getWidth() - 2, getHeight() - 8, 6, 6);
+            }
+            Icon icon = getIcon();
+            if (icon != null) icon.paintIcon(this, g, (getWidth() - icon.getIconWidth()) / 2,
+                (getHeight() - icon.getIconHeight()) / 2);
+            g.dispose();
         }
     }
 
@@ -2778,7 +2911,7 @@ public final class CastAppearance {
                 int x = (getWidth() - stringWidth) / 4;
                 int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
                 g.setFont(new Font(null, Font.PLAIN, 20));
-                g.setColor(Color.BLACK);
+                g.setColor(getForeground());
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.drawString(ownTip, x, y);
             }
@@ -3004,6 +3137,8 @@ public final class CastAppearance {
             g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.setColor(enabled ? color : MUTED);
             switch (name) {
+                case "chevronLeft": g.drawPolyline(new int[]{15, 9, 15}, new int[]{6, 12, 18}, 3); break;
+                case "chevronRight": g.drawPolyline(new int[]{9, 15, 9}, new int[]{6, 12, 18}, 3); break;
                 case "phone": g.drawRoundRect(7, 2, 10, 20, 4, 4); g.drawLine(10, 5, 14, 5); g.drawLine(10, 17, 14, 17); break;
                 case "back": g.drawPolyline(new int[]{14, 8, 14}, new int[]{6, 12, 18}, 3); break;
                 case "power": g.drawArc(5, 4, 14, 14, 95, 265); g.drawLine(12, 2, 12, 10); break;
@@ -3122,9 +3257,8 @@ public final class CastAppearance {
                     g.drawLine(7, 20, 17, 20);
                     break;
                 case "recents":
-                    g.drawRect(5, 12, 12, 8);
-                    g.drawRect(8, 7, 12, 8);
-                    g.drawRect(11, 3, 12, 8);
+                    g.drawRoundRect(3, 5, 8, 14, 2, 2);
+                    g.drawRoundRect(13, 5, 8, 14, 2, 2);
                     break;
                 case "notice":
                     g.drawArc(5, 5, 14, 12, 180, 180);
