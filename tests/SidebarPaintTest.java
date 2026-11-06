@@ -63,9 +63,16 @@ public final class SidebarPaintTest {
             Process capture = new ProcessBuilder("screencapture", "-x", "-o", "-l", id, output.toString()).inheritIO().start();
             if (capture.waitFor() != 0) throw new AssertionError("Native screenshot failed");
             BufferedImage screenshot = javax.imageio.ImageIO.read(output.toFile());
+            for (int x : new int[]{0, screenshot.getWidth() - 1}) {
+                for (int y : new int[]{0, screenshot.getHeight() - 1}) {
+                    if ((screenshot.getRGB(x, y) >>> 24) != 0)
+                        throw new AssertionError("Compact window corner must reveal the desktop");
+                }
+            }
             double scale = (double) screenshot.getWidth() / window[0].getWidth();
             int middleY = (int) ((window[0].getInsets().top + window[0].getContentPane().getHeight() / 2.0) * scale);
             int center = screenshot.getRGB(screenshot.getWidth() / 2, middleY);
+            if ((center >>> 24) != 255) throw new AssertionError("Phone pixels must remain opaque");
             boolean rightArrow = false;
             for (int y = middleY - (int) (7 * scale); y <= middleY + (int) (7 * scale); y++) {
                 for (int x = (int) (4 * scale); x < (int) (14 * scale); x++)

@@ -62,6 +62,7 @@ public final class CastAppearance {
     static final Color MUTED = new Color(0x738195);
     static final Color LINE = new Color(0xE0E5ED);
     static final Color BLUE = new Color(0x4267D5);
+    static final int PHONE_CORNER_ARC = 25;
     static final String DEFAULT_UNLOCK_PIN = "880925";
 
     /** User stream settings applied when a capture session starts; 0/unset keeps SDK defaults. */
@@ -688,7 +689,17 @@ public final class CastAppearance {
                 }
             }.execute();
         });
-        JPanel shell = new JPanel(new BorderLayout());
+        JPanel shell = new JPanel(new BorderLayout()) {
+            @Override public void paint(Graphics graphics) {
+                Graphics2D g = (Graphics2D) graphics.create();
+                if (window.isUndecorated() && window.getBackground().getAlpha() == 0) {
+                    g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
+                        PHONE_CORNER_ARC, PHONE_CORNER_ARC));
+                }
+                super.paint(g);
+                g.dispose();
+            }
+        };
         shell.setBackground(SURFACE);
         JPanel header = new JPanel(new BorderLayout(12, 12));
         header.setBackground(Color.WHITE);
@@ -1175,6 +1186,7 @@ public final class CastAppearance {
             if (!on) {
                 lastWindowState[0] = window.getExtendedState();
                 lastWindowBounds[0] = window.getBounds();
+                window.setBackground(Color.BLACK);
                 try {
                     setUndecoratedQuietly(window, true, screen.getDefaultConfiguration().getBounds());
                 } catch (RuntimeException error) {
@@ -2620,6 +2632,7 @@ public final class CastAppearance {
 
     /** Toggle decorations without stopping capture, keyboard bindings or status updates. */
     private static void setUndecoratedQuietly(Window window, boolean undecorated, Rectangle bounds) {
+        if (!undecorated && window.getBackground().getAlpha() != 255) window.setBackground(SURFACE);
         if (window.isUndecorated() == undecorated) {
             if (bounds != null) window.setBounds(bounds);
             return;
@@ -2677,6 +2690,9 @@ public final class CastAppearance {
                 setUndecoratedQuietly(window, true, contentBounds);
             }
             if (!window.isUndecorated()) setUndecoratedQuietly(window, true, window.getBounds());
+            // macOS supports transparent windows, but not AWT's setShape API.
+            // Clip the entire content hierarchy so the desktop shows through the corners.
+            window.setBackground(new Color(0, 0, 0, 0));
             if (window.getExtendedState() != JFrame.NORMAL) window.setExtendedState(JFrame.NORMAL);
             BufferedImage image = display.getImage();
             if (image != null) ratio = (double) image.getWidth() / image.getHeight();
@@ -2952,7 +2968,7 @@ public final class CastAppearance {
         }
         @Override protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
-            g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), 25, 25));
+            g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), PHONE_CORNER_ARC, PHONE_CORNER_ARC));
             BufferedImage shown = display != null ? display : getImage();
             if (shown != null) {
                 double aspect = (double) shown.getWidth() / shown.getHeight();
