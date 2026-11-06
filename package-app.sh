@@ -73,6 +73,8 @@ if [[ -x "$CAST_TESSERACT" ]]; then
 else
     echo "未提供对应架构的 Tesseract，图片识别使用系统 Vision 引擎。"
 fi
+# Clear Finder metadata from copied build artifacts; leave read-only runtime licenses alone.
+xattr -cr "$CAST_RESOURCES/app/build"
 codesign --force --deep --sign - "$CAST_APP"
 if [[ -e "$CAST_PROJECT/dist/$CAST_APP_NAME.app" ]]; then
     mkdir -p "$CAST_PROJECT/dist/backups"

@@ -2755,19 +2755,6 @@ public final class CastAppearance {
             }
             g.dispose();
         }
-        @Override protected void paintChildren(Graphics graphics) {
-            for (int i = getComponentCount() - 1; i >= 0; i--) {
-                Component child = getComponent(i);
-                if (!child.isVisible()) continue;
-                Rectangle r = child.getBounds();
-                Graphics2D cg = (Graphics2D) graphics.create(r.x, r.y, r.width, r.height);
-                if (child == display) {
-                    cg.clip(new RoundRectangle2D.Double(0, 0, r.width, r.height, 25, 25));
-                }
-                child.paint(cg);
-                cg.dispose();
-            }
-        }
     }
 
     /** A quiet edge chevron, like a web sidebar rail, with a small hover target. */
@@ -2894,7 +2881,8 @@ public final class CastAppearance {
             return stats;
         }
         @Override protected void paintComponent(Graphics graphics) {
-            Graphics2D g = (Graphics2D) graphics;
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), 25, 25));
             BufferedImage shown = display != null ? display : getImage();
             if (shown != null) {
                 double aspect = (double) shown.getWidth() / shown.getHeight();
@@ -2915,6 +2903,7 @@ public final class CastAppearance {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.drawString(ownTip, x, y);
             }
+            g.dispose();
         }
         private static BufferedImage rotate(BufferedImage image, int rotation) {
             if (image == null || rotation == 0) return image;
