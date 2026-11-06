@@ -49,7 +49,7 @@ public final class SidebarPaintTest {
                 Thread.sleep(200);
             }
             for (int i = 0; i < 20; i++) {
-                SwingUtilities.invokeAndWait(() -> { display[0].setImage(frame); window[0].repaint(); });
+                SwingUtilities.invokeAndWait(() -> display[0].setImage(frame));
                 Thread.sleep(20);
             }
             Process lookup = new ProcessBuilder("swift", "-").start();
@@ -81,7 +81,7 @@ public final class SidebarPaintTest {
                     rightArrow |= !sameColor(screenshot.getRGB(x, y), center);
             }
             if (!rightArrow) throw new AssertionError("Right expand arrow missing");
-            System.out.println("PASS: real buffered repaint shows only the right arrow; left edge keeps phone pixels");
+            System.out.println("PASS: incoming frame repaints preserve transparent corners, opaque phone pixels and only the right arrow");
         } catch (Throwable error) { error.printStackTrace(); System.exit(1); }
         finally {
             try { SwingUtilities.invokeAndWait(() -> { if (window[0] != null) window[0].dispose(); }); }

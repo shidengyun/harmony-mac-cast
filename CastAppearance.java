@@ -690,6 +690,10 @@ public final class CastAppearance {
             }.execute();
         });
         JPanel shell = new JPanel(new BorderLayout()) {
+            @Override protected boolean isPaintingOrigin() {
+                // Incoming frames repaint a child; keep them inside the window's corner clip.
+                return window.isUndecorated() && window.getBackground().getAlpha() == 0;
+            }
             @Override public void paint(Graphics graphics) {
                 Graphics2D g = (Graphics2D) graphics.create();
                 if (window.isUndecorated() && window.getBackground().getAlpha() == 0) {
