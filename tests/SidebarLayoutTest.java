@@ -40,7 +40,14 @@ public final class SidebarLayoutTest {
         stage.doLayout();
         check(stage.getX() == 0 && stage.getY() == 0, "screen must occupy the full left side");
         check(stage.getHeight() == sidebar.getHeight(), "screen and sidebar must have the same height");
-        check(stage.getX() + stage.getWidth() == sidebar.getX(), "screen must end at the right sidebar");
+        JPanel rail = (JPanel) named(window.getContentPane(), "sidebarRail");
+        JButton toggle = (JButton) named(rail, "sidebarToggle");
+        Point railPosition = SwingUtilities.convertPoint(rail.getParent(), rail.getLocation(), window.getContentPane());
+        Point sidebarPosition = SwingUtilities.convertPoint(sidebar.getParent(), sidebar.getLocation(), window.getContentPane());
+        check(stage.getX() + stage.getWidth() == railPosition.x, "toggle rail must start at the screen edge");
+        check(railPosition.x + rail.getWidth() == sidebarPosition.x, "toggle rail must sit between screen and controls");
+        check(rail.getWidth() == 24 && toggle.getWidth() == 24 && toggle.getHeight() == 48,
+            "toggle must remain a compact 24px-wide control");
         check(sidebar.getWidth() == 300, "sidebar must keep its width when resizing");
         Rectangle frame = display.getBounds();
         check(frame.width > 0 && frame.height > 0, "frame must stay visible");
@@ -55,14 +62,15 @@ public final class SidebarLayoutTest {
         int count = 0;
         for (JButton control : controls) {
             if (!control.isVisible()) continue; // Fullscreen's exit button is hidden normally.
+            if (control == toggle) continue;
             check(SwingUtilities.isDescendingFrom(control, sidebar), "button left in screen area: " + control.getText());
             check(!control.getText().isEmpty(), "sidebar buttons must have text labels");
             check(control.getWidth() > 0 && control.getHeight() > 0, "button clipped: " + control.getText());
             count++;
         }
-        check(count == 33, "expected all 33 controls in sidebar, found " + count);
+        check(count == 34, "expected all 34 controls in sidebar, found " + count);
     }
-    static void screenshot(CastAppearance.Window window, Path path) throws Exception {
+    static void screenshot(java.awt.Window window, Path path) throws Exception {
         BufferedImage image = new BufferedImage(window.getWidth() * 2, window.getHeight() * 2,
             BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
@@ -97,6 +105,21 @@ public final class SidebarLayoutTest {
                 layout(window, stage, sidebar, display);
                 screenshot(window, output.resolve("sidebar-default.png"));
                 Rectangle original = window.getBounds();
+                JButton toggle = (JButton) named(window.getContentPane(), "sidebarToggle");
+                JPanel rail = (JPanel) named(window.getContentPane(), "sidebarRail");
+                for (int i = 0; i < 3; i++) {
+                    toggle.doClick();
+                    window.validate(); stage.doLayout();
+                    check(!sidebar.isVisible(), "collapse must hide the entire menu");
+                    check(stage.getWidth() == window.getContentPane().getWidth() - 24, "collapsed screen must reclaim sidebar space except narrow toggle rail");
+                    check(toggle.isShowing() && rail.getWidth() == 24, "compact expand entry must remain reachable");
+                    check(toggle.getToolTipText().equals("展开右侧菜单"), "toggle must offer expansion when collapsed");
+                    check(window.getBounds().equals(original), "collapse must preserve window bounds");
+                    if (i == 0) screenshot(window, output.resolve("sidebar-collapsed.png"));
+                    toggle.doClick();
+                    layout(window, stage, sidebar, display);
+                    check(toggle.getToolTipText().equals("收起右侧菜单"), "same toggle must offer collapse when expanded");
+                }
                 window.setBounds(original.x, original.y, 640, 480);
                 layout(window, stage, sidebar, display);
                 JButton playback = button(sidebar, "回放宏");
@@ -126,7 +149,33 @@ public final class SidebarLayoutTest {
                 check(sidebar.isVisible(), "fullscreen exit must restore sidebar");
                 check(window.getBounds().equals(original), "fullscreen exit must restore window bounds");
                 layout(window, stage, sidebar, display);
-                System.out.println("PASS: all 33 buttons on right, full-height screen, small-window scrolling, portrait/landscape aspect ratio, rotation and fullscreen restoration");
+                toggle.doClick();
+                button(sidebar, "关灯模式").doClick();
+                check(!toggle.isShowing(), "dark mode must hide the toggle rail");
+                light.doClick();
+                window.validate(); stage.doLayout();
+                check(!sidebar.isVisible() && toggle.isShowing(), "dark mode exit must preserve collapsed menu");
+                check(window.getBounds().equals(original), "dark mode exit must preserve collapsed window bounds");
+                toggle.doClick();
+                layout(window, stage, sidebar, display);
+                final Throwable[] settingsError = {null};
+                final boolean[] settingsSeen = {false};
+                Timer closeSettings = new Timer(250, event -> {
+                    for (java.awt.Window opened : java.awt.Window.getWindows()) {
+                        if (!(opened instanceof JDialog dialog) || !dialog.isShowing()
+                                || !"快捷键设置".equals(dialog.getTitle())) continue;
+                        try {
+                            settingsSeen[0] = true;
+                            screenshot(dialog, output.resolve("shortcut-settings.png"));
+                        } catch (Throwable error) { settingsError[0] = error; }
+                        finally { dialog.dispose(); }
+                    }
+                });
+                closeSettings.setRepeats(false);
+                closeSettings.start();
+                ((JButton) named(sidebar, "shortcutSettings")).doClick();
+                check(settingsSeen[0] && settingsError[0] == null, "shortcut settings must open and render");
+                System.out.println("PASS: right-side controls, collapse/expand, reclaimed space, scrolling, rotation and dark-mode state restoration");
             } catch (Exception error) {
                 throw new RuntimeException(error);
             } finally {

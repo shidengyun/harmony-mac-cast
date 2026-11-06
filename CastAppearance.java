@@ -434,6 +434,7 @@ public final class CastAppearance {
         private FileDropTransfer fileDrops;
         private volatile CaptureSession captureSession;
         private PhoneKeyboard keyboard;
+        private SidebarShortcuts shortcuts;
         private boolean unlockBusy;
         private final ExecutorService captureTasks = Executors.newSingleThreadExecutor(task -> {
             Thread thread = new Thread(task, "cast-session");
@@ -445,6 +446,7 @@ public final class CastAppearance {
         private int refreshTicks;
         private boolean keepTimerOnDispose;
         private boolean refreshingDevices;
+        private boolean updatingDevices;
         public Window() {
             super();
             apply(this);
@@ -474,6 +476,7 @@ public final class CastAppearance {
                 stopCaptureSession(this);
                 keepAwake.release();
                 if (fileDrops != null) fileDrops.close();
+                if (shortcuts != null) shortcuts.close();
             }
             super.dispose();
         }
@@ -646,12 +649,9 @@ public final class CastAppearance {
             if (window.refreshingDevices) return;
             window.refreshingDevices = true;
             refresh.setEnabled(false);
-            devices.setEnabled(false);
-            Object selection = devices.getSelectedItem();
-            CaptureRecovery.Target activeTarget = window.recovery.target();
             new SwingWorker<java.util.List<utils.entity.Device>, Void>() {
-                protected java.util.List<utils.entity.Device> doInBackground() {
-                    java.util.List<utils.entity.Device> found = utils.HdcUtil.getLocalDevices();
+                protected java.util.List<utils.entity.Device> doInBackground() throws Exception {
+                    java.util.List<utils.entity.Device> found = connectionCheck.discoverLocalDevices();
                     found.addAll(utils.HdcUtil.getRemoteDevice());
                     return found;
                 }
@@ -659,14 +659,18 @@ public final class CastAppearance {
                 protected void done() {
                     try {
                         java.util.List<utils.entity.Device> found = get();
+                        Object selection = devices.getSelectedItem();
+                        CaptureRecovery.Target activeTarget = window.recovery.target();
                         JComboBox<utils.entity.Device> list = (JComboBox<utils.entity.Device>) devices;
+                        window.updatingDevices = true;
                         list.removeAllItems();
                         utils.entity.Device keep = null;
                         for (utils.entity.Device device : found) {
                             list.addItem(device);
                             if (activeTarget != null && activeTarget.sn.equals(device.getSn()) && activeTarget.ip.equals(device.getIp())) keep = device;
                             if (activeTarget == null && selection instanceof utils.entity.Device
-                                    && ((utils.entity.Device) selection).getSn().equals(device.getSn())) keep = device;
+                                    && ((utils.entity.Device) selection).getSn().equals(device.getSn())
+                                    && ((utils.entity.Device) selection).getIp().equals(device.getIp())) keep = device;
                         }
                         if (keep == null && activeTarget != null && window.recovery.active()) {
                             keep = new utils.entity.Device(activeTarget.ip, activeTarget.sn);
@@ -676,8 +680,8 @@ public final class CastAppearance {
                     } catch (Exception error) {
                         System.err.println("刷新设备失败: " + error.getClass().getSimpleName());
                     } finally {
+                        window.updatingDevices = false;
                         window.refreshingDevices = false;
-                        devices.setEnabled(true);
                         refresh.setEnabled(true);
                     }
                 }
@@ -710,7 +714,7 @@ public final class CastAppearance {
         JPanel connection = new JPanel(new BorderLayout(8, 0));
         connection.setOpaque(false);
         devices.setPreferredSize(new Dimension(160, 34));
-        devices.setToolTipText("选择通过 USB 连接的手机");
+        devices.setToolTipText("选择 USB 手机或 Wi-Fi 地址；USB 接入后自动读取无线地址");
         devices.setRenderer(new DefaultListCellRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> list, Object value,
                     int index, boolean selected, boolean focused) {
@@ -728,7 +732,7 @@ public final class CastAppearance {
         connection.add(label("手机设备", 12, Font.PLAIN, MUTED), BorderLayout.NORTH);
         connection.add(devices, BorderLayout.CENTER);
         devices.addItemListener(event -> {
-            if (window.refreshingDevices || event.getStateChange() != ItemEvent.SELECTED) return;
+            if (window.updatingDevices || event.getStateChange() != ItemEvent.SELECTED) return;
             Object selected = devices.getSelectedItem();
             Object remote = field(window, "hosRemoteDevice", Object.class);
             boolean capturing = window.recovery.active();
@@ -1087,7 +1091,26 @@ public final class CastAppearance {
         sidebar.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, LINE));
         sidebar.add(header, BorderLayout.NORTH);
         sidebar.add(toolScroll, BorderLayout.CENTER);
-        shell.add(sidebar, BorderLayout.EAST);
+        JButton sidebarToggle = new JButton(new LineIcon("right", INK, 12));
+        sidebarToggle.setName("sidebarToggle");
+        sidebarToggle.setPreferredSize(new Dimension(24, 48));
+        sidebarToggle.setMargin(new Insets(0, 0, 0, 0));
+        sidebarToggle.setFocusable(false);
+        sidebarToggle.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        JPanel sidebarRail = new JPanel(new GridBagLayout());
+        sidebarRail.setName("sidebarRail");
+        sidebarRail.setBackground(SURFACE);
+        sidebarRail.setPreferredSize(new Dimension(24, 0));
+        sidebarRail.add(sidebarToggle);
+        JPanel controlDock = new JPanel(new BorderLayout());
+        controlDock.setName("controlDock");
+        controlDock.add(sidebarRail, BorderLayout.WEST);
+        controlDock.add(sidebar, BorderLayout.CENTER);
+        JPanel sidebarHeading = new JPanel(new BorderLayout(0, 12));
+        sidebarHeading.setOpaque(false);
+        sidebarHeading.add(identity, BorderLayout.CENTER);
+        header.add(sidebarHeading, BorderLayout.NORTH);
+        shell.add(controlDock, BorderLayout.EAST);
         window.setContentPane(shell);
         window.fileDrops = new FileDropTransfer(window, () -> {
             CaptureRecovery.Target active = window.recovery.target();
@@ -1101,11 +1124,28 @@ public final class CastAppearance {
         window.setTitle("鸿蒙投屏");
         final GraphicsDevice screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
         final boolean[] darkMode = {false};
+        final boolean[] sidebarCollapsed = {false};
+        Runnable updateSidebar = () -> {
+            sidebar.setVisible(!darkMode[0] && !sidebarCollapsed[0]);
+            controlDock.setVisible(!darkMode[0]);
+            sidebarToggle.setIcon(new LineIcon(sidebarCollapsed[0] ? "left" : "right", INK, 12));
+            String title = sidebarCollapsed[0] ? "展开右侧菜单" : "收起右侧菜单";
+            sidebarToggle.setToolTipText(title);
+            sidebarToggle.getAccessibleContext().setAccessibleName(title);
+            shell.revalidate();
+            shell.repaint();
+        };
+        sidebarToggle.addActionListener(event -> {
+            sidebarCollapsed[0] = !sidebarCollapsed[0];
+            updateSidebar.run();
+            display.requestFocusInWindow();
+        });
+        updateSidebar.run();
         final int[] lastWindowState = {JFrame.NORMAL};
         final Rectangle[] lastWindowBounds = {null};
         Consumer<Boolean> setLights = on -> {
             darkMode[0] = !on;
-            sidebar.setVisible(on);
+            updateSidebar.run();
             shell.setBackground(on ? SURFACE : new Color(0x05070A));
             stage.setDark(!on);
             window.setTitle(on ? "鸿蒙投屏" : "鸿蒙投屏 · 关灯模式（按 ESC 开灯）");
@@ -1129,11 +1169,25 @@ public final class CastAppearance {
             }
             window.revalidate();
         };
-        lights.addActionListener(event -> setLights.accept(false));
+        lights.addActionListener(event -> setLights.accept(darkMode[0]));
         light.addActionListener(event -> setLights.accept(true));
         window.getRootPane().registerKeyboardAction(event -> {
             if (darkMode[0]) setLights.accept(true);
         }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        window.shortcuts = new SidebarShortcuts(window, SidebarShortcuts.configPath());
+        for (int i = 0; i < labeledButtons.length; i++)
+            window.shortcuts.register(iconsForShortcut(i), labeledButtons[i]);
+        window.shortcuts.register("refreshDevices", refresh);
+        window.shortcuts.register("toggleCapture", start);
+        // One binding toggles the entire menu, including when it is hidden.
+        window.shortcuts.register("toggleSidebar", sidebarToggle);
+        JButton shortcutSettings = new JButton("快捷键设置", new LineIcon("settings", INK, 16));
+        shortcutSettings.setName("shortcutSettings");
+        shortcutSettings.setFocusable(false);
+        shortcutSettings.addActionListener(event -> window.shortcuts.showSettings());
+        sidebarHeading.add(shortcutSettings, BorderLayout.SOUTH);
+        window.shortcuts.register("shortcutSettings", shortcutSettings);
+        window.shortcuts.load();
         final long[] frameLogAt = {0};
         window.statusTimer = new Timer(500, event -> {
             window.recovery.tick(CaptureRecovery.now());
@@ -1142,7 +1196,7 @@ public final class CastAppearance {
             boolean ready = connectionState == CaptureRecovery.State.CONNECTED && display.getImage() != null;
             display.setScreenCapturingMode(ready);
             long now = System.currentTimeMillis();
-            if (!capturing && ++window.refreshTicks % 8 == 0) refresh.doClick();
+            if (++window.refreshTicks % 8 == 0) refresh.doClick();
             Object selected = devices.getSelectedItem();
             boolean wireless = selected instanceof utils.entity.Device &&
                 ((utils.entity.Device) selected).getSn().contains(":");
@@ -1224,6 +1278,15 @@ public final class CastAppearance {
         window.statusTimer.start();
     }
 
+    private static String iconsForShortcut(int index) {
+        // Stable IDs keep user bindings intact when button labels change.
+        return new String[]{"home", "recents", "back", "unlock", "volumeDown", "volumeUp", "power",
+            "rotate", "enlarge", "pin", "lights", "deviceHorizontal", "deviceVertical", "screenshot",
+            "recordScreen", "refreshFrame", "timedScreenshot", "copyScreenText", "sendText", "paste",
+            "layoutTree", "files", "forwardPort", "installApp", "castSettings", "recordMacro", "playMacro",
+            "swipeUp", "swipeDown", "swipeLeft", "swipeRight"}[index];
+    }
+
     /** Whether the connected device supports the complete mouse API used for smooth wheel input. */
     private static boolean canUseCompleteMouse(Window window) {
         try {
@@ -1267,6 +1330,7 @@ public final class CastAppearance {
         final HosRemoteDevice remote;
         final CaptureRecovery.Target target;
         volatile boolean imageMode;
+        boolean wirelessRemembered; // Accessed under the session lock.
         CastDecoder decoder;
         CaptureSession(long token, HosRemoteDevice remote, CaptureRecovery.Target target) {
             this.token = token; this.remote = remote; this.target = target;
@@ -1355,6 +1419,16 @@ public final class CastAppearance {
                         }
                         if (image != null && window.recovery.frame(session.token, CaptureRecovery.now())) {
                             label.setImage(image);
+                            if (!session.wirelessRemembered) {
+                                session.wirelessRemembered = true;
+                                window.captureTasks.execute(() -> {
+                                    if (!window.recovery.isCurrent(session.token)) return;
+                                    try { rememberWirelessTarget(session.target); }
+                                    catch (IOException error) {
+                                        System.err.println("保存手机 Wi-Fi 地址失败: " + error.getClass().getSimpleName());
+                                    }
+                                });
+                            }
                         }
                     } catch (Throwable error) { onException(error); }
                 }
@@ -1397,6 +1471,30 @@ public final class CastAppearance {
                 } else window.recovery.failed(session.token, false, CaptureRecovery.now());
             }
         };
+    }
+
+    /** Only a successful local Wi-Fi session replaces the last remembered phone. */
+    static void rememberWirelessTarget(CaptureRecovery.Target target) throws IOException {
+        if (target == null || target.sn == null || !target.sn.matches("([0-9]{1,3}\\.){3}[0-9]{1,3}:8710")
+                || !("127.0.0.1".equals(target.ip) || "localhost".equals(target.ip))) return;
+        for (String octet : target.sn.substring(0, target.sn.indexOf(':')).split("\\.")) {
+            if (Integer.parseInt(octet) > 255) return;
+        }
+        String configured = System.getenv("CAST_STATE_DIR");
+        java.nio.file.Path directory = java.nio.file.Path.of(configured == null || configured.isBlank()
+            ? System.getProperty("user.dir") : configured).toAbsolutePath();
+        java.nio.file.Files.createDirectories(directory);
+        java.nio.file.Path destination = directory.resolve("wireless-device.txt");
+        java.nio.file.Path temporary = java.nio.file.Files.createTempFile(directory, "wireless-", ".tmp");
+        try {
+            java.nio.file.Files.writeString(temporary, target.sn + "\n", StandardCharsets.UTF_8);
+            try {
+                java.nio.file.Files.move(temporary, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException error) {
+                java.nio.file.Files.move(temporary, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally { java.nio.file.Files.deleteIfExists(temporary); }
     }
 
     /** Replaces the upstream start-button toggle: start with settings, or stop cleanly. */

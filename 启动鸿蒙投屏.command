@@ -7,6 +7,7 @@ CAST_TOOLS="$(cast_toolchains "${CAST_TOOLCHAINS_PATH:-}")"
 CAST_HDC="$(cast_absolute_path "${CAST_HDC_PATH:-$CAST_TOOLS/hdc}")"
 CAST_JAVA="$(cast_absolute_path "${CAST_JAVA_PATH:-$CAST_JDK/bin/java}")"
 CAST_STATE="$(cast_absolute_path "${CAST_STATE_DIR:-$CAST_ROOT}")"
+export CAST_STATE_DIR="$CAST_STATE"
 export CAST_HDC_PATH="$CAST_HDC"
 export CAST_PROJECT_DIR="$CAST_ROOT"
 if [[ -n "${CAST_OCR_PATH:-}" ]]; then
@@ -23,7 +24,7 @@ export PATH="$(dirname -- "$CAST_HDC"):$(dirname -- "$CAST_JAVA"):$PATH"
 export JAVA_HOME="$(dirname -- "$(dirname -- "$CAST_JAVA")")"
 cd "$CAST_STATE"
 
-CAST_MODE="${1:-}"
+CAST_MODE="${1:---auto}"
 CAST_WIRELESS_TARGET=""
 CAST_MAC_IP=""
 CAST_MAC_SUBNET=""
@@ -55,6 +56,13 @@ cast_hdc() {
 }
 cast_connected() {
     cast_hdc list targets -v | awk -v target="$1" '$1 == target && $3 == "Connected" { found = 1 } END { exit !found }'
+}
+cast_reconnect_wifi() {
+    local target="$1"
+    if cast_hdc list targets -v | awk -v target="$target" '$1 == target && $3 == "Offline" { found = 1 } END { exit !found }'; then
+        cast_hdc tconn "$target" -remove || true
+    fi
+    cast_hdc tconn "$target" || true
 }
 cast_target_valid() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:8710$ ]]
@@ -178,12 +186,8 @@ fi
 
 if [[ "$CAST_MODE" == "--wireless" || "$CAST_MODE" == "--auto" ]]; then
     if cast_target_valid "$CAST_WIRELESS_TARGET" && ! cast_connected "$CAST_WIRELESS_TARGET"; then
-        CAST_TARGET_SUBNET=$(cast_subnet "${CAST_WIRELESS_TARGET%:8710}")
-        if [[ -z "$CAST_TARGET_SUBNET" || -z "$CAST_MAC_SUBNET" || "$CAST_TARGET_SUBNET" == "$CAST_MAC_SUBNET" ]]; then
-            cast_hdc tconn "$CAST_WIRELESS_TARGET" || true
-        else
-            echo "提示：记忆的无线地址 $CAST_WIRELESS_TARGET 与当前网络（$CAST_MAC_SUBNET.x）不同网段，跳过该地址并尝试重新读取手机。"
-        fi
+        # Address prefixes alone do not determine reachability (e.g. a /21 LAN).
+        cast_reconnect_wifi "$CAST_WIRELESS_TARGET"
     fi
     if ! cast_target_valid "$CAST_WIRELESS_TARGET" || ! cast_connected "$CAST_WIRELESS_TARGET"; then
         CAST_USB_TARGETS=$(cast_hdc list targets -v | awk '$2 == "USB" && $3 == "Connected" { print $1 }')
@@ -191,12 +195,9 @@ if [[ "$CAST_MODE" == "--wireless" || "$CAST_MODE" == "--auto" ]]; then
             CAST_PHONE_IP=$(cast_phone_ip "$CAST_USB_TARGETS")
             if cast_ip_valid "$CAST_PHONE_IP"; then
                 CAST_WIRELESS_TARGET="$CAST_PHONE_IP:8710"
-                if [[ -n "$CAST_MAC_SUBNET" && "$(cast_subnet "$CAST_PHONE_IP")" != "$CAST_MAC_SUBNET" ]]; then
-                    echo "警告：手机 WLAN 地址 $CAST_PHONE_IP 与 Mac 网段 $CAST_MAC_SUBNET.x 不同，请确认手机连接的是与 Mac 相同的 WiFi。"
-                fi
                 echo "正在配置 Wi-Fi 投屏，请保持手机和 Mac 在同一局域网。"
                 cast_hdc -t "$CAST_USB_TARGETS" tmode port 8710 || true
-                cast_hdc tconn "$CAST_WIRELESS_TARGET" || true
+                cast_reconnect_wifi "$CAST_WIRELESS_TARGET"
             else
                 echo "未能读取手机 WLAN 地址：请确认手机已开启并连接 WiFi（USB 已连接）。"
             fi

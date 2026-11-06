@@ -12,7 +12,7 @@ mkdir -p build
 "$CAST_BUILD_JDK/bin/javac" --release 17 \
     -cp 'build:vendor/hosScrcpy-1.0.18-beta.jar:vendor/release/HOScrcpy/libs/*' \
     -d build AutoStart.java CastAppearance.java PhoneKeyboard.java FileDropTransfer.java \
-    HdcFileSender.java CaptureRecovery.java CaptureConnection.java ScreenText.java HdcCommand.java \
+    HdcFileSender.java CaptureRecovery.java CaptureConnection.java ScreenText.java HdcCommand.java SidebarShortcuts.java \
     vendor/patches/utils/HdcUtil.java
 swiftc -O packaging/ScreenTextOCR.swift -o build/ScreenTextOCR
 echo "编译完成：build/"
