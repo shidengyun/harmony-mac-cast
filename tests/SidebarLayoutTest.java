@@ -118,6 +118,8 @@ public final class SidebarLayoutTest {
                     window.validate(); stage.doLayout();
                     check(!sidebar.isVisible(), "collapse must hide the entire menu");
                     check(window.isUndecorated(), "compact phone window must hide titlebar without entering fullscreen");
+                    check(Boolean.FALSE.equals(window.getRootPane().getClientProperty("Window.shadow")),
+                        "compact phone window must disable the native shadow");
                     check(Color.BLACK.equals(stage.getBackground()) && Color.BLACK.equals(rail.getBackground()),
                         "collapsed phone area and toggle rail must use a black lights-out background");
                     check(Color.WHITE.equals(display.getForeground()), "empty-frame hints must remain readable on black");
@@ -169,6 +171,8 @@ public final class SidebarLayoutTest {
                     layout(window, stage, sidebar, display);
                     check(window.getBounds().equals(original), "expanding must restore original window bounds");
                     check(!window.isUndecorated(), "expanding must restore native titlebar and window controls");
+                    check(Boolean.TRUE.equals(window.getRootPane().getClientProperty("Window.shadow")),
+                        "expanded window must restore its native shadow");
                     check(CastAppearance.SURFACE.equals(stage.getBackground()), "expanding menu must restore normal background");
                     check(toggle.getToolTipText().equals("收起右侧菜单"), "same toggle must offer collapse when expanded");
                 }

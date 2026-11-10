@@ -464,6 +464,7 @@ public final class CastAppearance {
                 if (keyboard != null) keyboard.close();
             }, "cast-close-session"));
             styled = true;
+            System.out.println("CAST_RENDERER=compact-frame-buffer pid=" + ProcessHandle.current().pid());
         }
         @Override public void setSize(int width, int height) {
             if (!styled) super.setSize(width, height);
@@ -647,10 +648,10 @@ public final class CastAppearance {
         JButton originalStart = field(window, "btnEnterScreenCapture", JButton.class);
         JButton refresh = field(window, "btnRefreshDevice", JButton.class);
         for (ActionListener listener : refresh.getActionListeners()) refresh.removeActionListener(listener);
-        refresh.addActionListener(event -> {
+        Consumer<Boolean> refreshDevices = manual -> {
             if (window.refreshingDevices) return;
             window.refreshingDevices = true;
-            refresh.setEnabled(false);
+            if (manual) refresh.setEnabled(false);
             new SwingWorker<java.util.List<utils.entity.Device>, Void>() {
                 protected java.util.List<utils.entity.Device> doInBackground() throws Exception {
                     java.util.List<utils.entity.Device> found = connectionCheck.discoverLocalDevices();
@@ -665,10 +666,8 @@ public final class CastAppearance {
                         CaptureRecovery.Target activeTarget = window.recovery.target();
                         JComboBox<utils.entity.Device> list = (JComboBox<utils.entity.Device>) devices;
                         window.updatingDevices = true;
-                        list.removeAllItems();
                         utils.entity.Device keep = null;
                         for (utils.entity.Device device : found) {
-                            list.addItem(device);
                             if (activeTarget != null && activeTarget.sn.equals(device.getSn()) && activeTarget.ip.equals(device.getIp())) keep = device;
                             if (activeTarget == null && selection instanceof utils.entity.Device
                                     && ((utils.entity.Device) selection).getSn().equals(device.getSn())
@@ -676,20 +675,34 @@ public final class CastAppearance {
                         }
                         if (keep == null && activeTarget != null && window.recovery.active()) {
                             keep = new utils.entity.Device(activeTarget.ip, activeTarget.sn);
-                            list.addItem(keep);
+                            found.add(keep);
                         }
-                        if (keep != null) list.setSelectedItem(keep);
+                        boolean unchanged = list.getItemCount() == found.size();
+                        for (int i = 0; unchanged && i < found.size(); i++)
+                            unchanged = sameDevice(list.getItemAt(i), found.get(i));
+                        if (!unchanged) {
+                            // Publish the complete list and selection together, without an empty intermediate list.
+                            DefaultComboBoxModel<utils.entity.Device> model = new DefaultComboBoxModel<>(
+                                found.toArray(new utils.entity.Device[0]));
+                            if (keep != null) model.setSelectedItem(keep);
+                            list.setModel(model);
+                        } else if (keep != null && !sameDevice(selection, keep)) {
+                            for (int i = 0; i < list.getItemCount(); i++)
+                                if (sameDevice(list.getItemAt(i), keep)) { list.setSelectedIndex(i); break; }
+                        }
                     } catch (Exception error) {
                         System.err.println("刷新设备失败: " + error.getClass().getSimpleName());
                     } finally {
                         window.updatingDevices = false;
                         window.refreshingDevices = false;
-                        refresh.setEnabled(true);
+                        if (manual) refresh.setEnabled(true);
                     }
                 }
             }.execute();
-        });
+        };
+        refresh.addActionListener(event -> refreshDevices.accept(true));
         JPanel shell = new JPanel(new BorderLayout()) {
+            private BufferedImage compactFrame;
             @Override protected boolean isPaintingOrigin() {
                 // Incoming frames repaint a child; keep them inside the window's corner clip.
                 return window.isUndecorated() && window.getBackground().getAlpha() == 0;
@@ -697,10 +710,29 @@ public final class CastAppearance {
             @Override public void paint(Graphics graphics) {
                 Graphics2D g = (Graphics2D) graphics.create();
                 if (window.isUndecorated() && window.getBackground().getAlpha() == 0) {
-                    g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
+                    // Present a complete transparent frame in one blit. A direct hierarchy paint
+                    // exposes the cleared background before the phone child is drawn on macOS.
+                    double scaleX = Math.abs(g.getTransform().getScaleX());
+                    double scaleY = Math.abs(g.getTransform().getScaleY());
+                    int width = Math.max(1, (int) Math.ceil(getWidth() * scaleX));
+                    int height = Math.max(1, (int) Math.ceil(getHeight() * scaleY));
+                    if (compactFrame == null || compactFrame.getWidth() != width || compactFrame.getHeight() != height)
+                        compactFrame = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
+                    Graphics2D frame = compactFrame.createGraphics();
+                    frame.setComposite(AlphaComposite.Clear);
+                    frame.fillRect(0, 0, width, height);
+                    frame.setComposite(AlphaComposite.SrcOver);
+                    frame.scale(scaleX, scaleY);
+                    frame.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
                         PHONE_CORNER_ARC, PHONE_CORNER_ARC));
+                    try { super.paint(frame); }
+                    finally { frame.dispose(); }
+                    g.setComposite(AlphaComposite.Src);
+                    g.drawImage(compactFrame, 0, 0, getWidth(), getHeight(), null);
+                } else {
+                    compactFrame = null;
+                    super.paint(g);
                 }
-                super.paint(g);
                 g.dispose();
             }
         };
@@ -720,7 +752,9 @@ public final class CastAppearance {
         identity.add(words, BorderLayout.CENTER);
         JLabel status = new StatusLabel();
         rotating.setArrowSwipe(direction -> swipeDirection(window, status, direction));
-        status.setIcon(new StatusDot(MUTED));
+        Icon waitingDot = new StatusDot(MUTED);
+        Icon connectedDot = new StatusDot(new Color(0x289E7B));
+        status.setIcon(waitingDot);
         header.add(identity, BorderLayout.NORTH);
         for (ActionListener listener : originalStart.getActionListeners()) {
             originalStart.removeActionListener(listener);
@@ -1151,6 +1185,11 @@ public final class CastAppearance {
         final boolean[] sidebarCollapsed = {false};
         SidebarWindowSize windowSizing = new SidebarWindowSize(window, display);
         window.fitCollapsedWindow = () -> windowSizing.update(sidebarCollapsed[0], darkMode[0]);
+        rotating.setAspectChanged(() -> {
+            window.fitCollapsedWindow.run();
+            stage.revalidate();
+            stage.repaint();
+        });
         Runnable updateSidebar = () -> {
             sidebar.setVisible(!darkMode[0] && !sidebarCollapsed[0]);
             controlDock.setVisible(!darkMode[0] && !sidebarCollapsed[0]);
@@ -1252,7 +1291,8 @@ public final class CastAppearance {
             boolean ready = connectionState == CaptureRecovery.State.CONNECTED && display.getImage() != null;
             display.setScreenCapturingMode(ready);
             long now = System.currentTimeMillis();
-            if (++window.refreshTicks % 8 == 0) refresh.doClick();
+            // Poll in the background: doClick animates the button and blocks this EDT for its press duration.
+            if (++window.refreshTicks % 8 == 0) refreshDevices.accept(false);
             Object selected = devices.getSelectedItem();
             boolean wireless = selected instanceof utils.entity.Device &&
                 ((utils.entity.Device) selected).getSn().contains(":");
@@ -1272,7 +1312,7 @@ public final class CastAppearance {
                 + (recorder.isRecording() ? " · 录制中" : "")
                 + (macroRecording[0] ? " · 宏录制中" : "")
                 + (macroReplaying[0] ? " · 宏回放中" : "") + resolution);
-            status.setIcon(new StatusDot(ready ? new Color(0x289E7B) : MUTED));
+            status.setIcon(ready ? connectedDot : waitingDot);
             start.setText("停止投屏".equals(originalStart.getText()) ? "停止投屏" : "开始投屏");
             start.setEnabled(originalStart.isEnabled() && (capturing || devices.getItemCount() > 0));
             for (JButton button : controlButtons) button.setEnabled(ready);
@@ -1328,11 +1368,15 @@ public final class CastAppearance {
                 System.out.println(rotating.logFrameStats()
                     + " size=" + (display.getImage() == null ? "none" : display.getImage().getWidth() + "x" + display.getImage().getHeight()));
             }
-            stage.revalidate();
-            stage.repaint();
             window.fitCollapsedWindow.run();
         });
         window.statusTimer.start();
+    }
+
+    private static boolean sameDevice(Object first, utils.entity.Device second) {
+        return first instanceof utils.entity.Device
+            && ((utils.entity.Device) first).getSn().equals(second.getSn())
+            && ((utils.entity.Device) first).getIp().equals(second.getIp());
     }
 
     private static String iconsForShortcut(int index) {
@@ -2636,6 +2680,8 @@ public final class CastAppearance {
 
     /** Toggle decorations without stopping capture, keyboard bindings or status updates. */
     private static void setUndecoratedQuietly(Window window, boolean undecorated, Rectangle bounds) {
+        // macOS otherwise draws a dark native shadow around the transparent phone window.
+        window.getRootPane().putClientProperty("Window.shadow", !undecorated);
         if (!undecorated && window.getBackground().getAlpha() != 255) window.setBackground(SURFACE);
         if (window.isUndecorated() == undecorated) {
             if (bounds != null) window.setBounds(bounds);
@@ -2696,7 +2742,7 @@ public final class CastAppearance {
             if (!window.isUndecorated()) setUndecoratedQuietly(window, true, window.getBounds());
             // macOS supports transparent windows, but not AWT's setShape API.
             // Clip the entire content hierarchy so the desktop shows through the corners.
-            window.setBackground(new Color(0, 0, 0, 0));
+            if (window.getBackground().getAlpha() != 0) window.setBackground(new Color(0, 0, 0, 0));
             if (window.getExtendedState() != JFrame.NORMAL) window.setExtendedState(JFrame.NORMAL);
             BufferedImage image = display.getImage();
             if (image != null) ratio = (double) image.getWidth() / image.getHeight();
@@ -2787,7 +2833,13 @@ public final class CastAppearance {
             int availableHeight = Math.max(1, getHeight() - (dark ? 20 + topInset : 0));
             int width = Math.max(1, (int) Math.min(availableWidth, availableHeight * ratio));
             int height = Math.max(1, (int) (width / ratio));
-            display.setBounds((getWidth() - width) / 2, (getHeight() - height) / 2, width, height);
+            if (sidebarCollapsed && !dark) {
+                // The compact window already follows the frame ratio. Fill its rounded bounds
+                // instead of exposing black rows from another integer aspect-fit calculation.
+                display.setBounds(0, 0, getWidth(), getHeight());
+            } else {
+                display.setBounds((getWidth() - width) / 2, (getHeight() - height) / 2, width, height);
+            }
             if (lightButton.isVisible()) {
                 lightButton.setBounds(getWidth() - 54, getHeight() - 54, 44, 44);
             }
@@ -2849,6 +2901,7 @@ public final class CastAppearance {
         private String ownTip = "";
         private int viewRotation;
         private FrameSink frameSink;
+        private Runnable aspectChanged;
         private long lastFrameAt;
         private long maxGapMs;
         private int framesInWindow;
@@ -2944,11 +2997,14 @@ public final class CastAppearance {
         BufferedImage getSourceImage() { return source; }
         long lastFrameAt() { return lastFrameAt; }
         void setFrameSink(FrameSink sink) { this.frameSink = sink; }
+        void setAspectChanged(Runnable changed) { aspectChanged = changed; }
         @Override public void setTipMessage(String tipMessage) {
+            if (java.util.Objects.equals(ownTip, tipMessage)) return;
             ownTip = tipMessage;
             super.setTipMessage(tipMessage);
         }
         @Override public void setImage(BufferedImage image) {
+            BufferedImage previous = display;
             source = image;
             if (image != null) ownTip = "";
             BufferedImage shown = rotate(image, viewRotation);
@@ -2958,6 +3014,11 @@ public final class CastAppearance {
             lastFrameAt = now;
             framesInWindow++;
             super.setImage(shown);
+            if (aspectChanged != null && shown != null && (previous == null
+                    || (long) previous.getWidth() * shown.getHeight() != (long) shown.getWidth() * previous.getHeight())) {
+                if (SwingUtilities.isEventDispatchThread()) aspectChanged.run();
+                else SwingUtilities.invokeLater(aspectChanged);
+            }
             if (frameSink != null && shown != null) frameSink.onFrame(shown);
         }
         /** Frame pacing diagnostics: fps and worst frame gap since the last call. */
@@ -2975,13 +3036,10 @@ public final class CastAppearance {
             g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), PHONE_CORNER_ARC, PHONE_CORNER_ARC));
             BufferedImage shown = display != null ? display : getImage();
             if (shown != null) {
-                double aspect = (double) shown.getWidth() / shown.getHeight();
-                int w = Math.max(1, (int) Math.min(getWidth(), aspect * getHeight()));
-                int h = Math.max(1, (int) (w / aspect));
-                int x = (getWidth() - w) / 2, y = (getHeight() - h) / 2;
+                // PhoneStage fits the aspect ratio once; fitting again loses edge pixels.
                 g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                 g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
-                g.drawImage(shown, x, y, w, h, null);
+                g.drawImage(shown, 0, 0, getWidth(), getHeight(), null);
             }
             if (ownTip != null && !ownTip.isEmpty()) {
                 FontMetrics metrics = g.getFontMetrics();
