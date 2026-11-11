@@ -42,7 +42,7 @@ public final class CompactBorderTest {
                                     "Black horizontal edge: " + size[0] + "x" + size[1] + " height=" + height + " y=" + y);
                             for (int x : new int[]{0, 1, w - 2, w - 1})
                                 check(painted.getRGB(x, h / 4) == color, "Black vertical edge at x=" + x);
-                            check((painted.getRGB(0, 0) >>> 24) == 0, "Compact corners must stay transparent");
+                            check(painted.getRGB(0, 0) == color, "Opaque compact corners must show the phone frame");
                         }
                         toggle.doClick();
                     }

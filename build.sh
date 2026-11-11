@@ -12,7 +12,10 @@ mkdir -p build
 "$CAST_BUILD_JDK/bin/javac" --release 17 \
     -cp 'build:vendor/hosScrcpy-1.0.18-beta.jar:vendor/release/HOScrcpy/libs/*' \
     -d build AutoStart.java CastAppearance.java PhoneKeyboard.java FileDropTransfer.java \
-    HdcFileSender.java CaptureRecovery.java CaptureConnection.java ScreenText.java HdcCommand.java SidebarShortcuts.java \
+    HdcFileSender.java CaptureRecovery.java CaptureConnection.java ScreenText.java HdcCommand.java SidebarShortcuts.java NativeWindowCorners.java \
     vendor/patches/utils/HdcUtil.java
 swiftc -O packaging/ScreenTextOCR.swift -o build/ScreenTextOCR
+clang -dynamiclib -fobjc-arc -O2 -mmacosx-version-min=13.0 \
+    -I "$CAST_BUILD_JDK/include" -I "$CAST_BUILD_JDK/include/darwin" \
+    -framework Cocoa -framework QuartzCore packaging/NativeWindowCorners.m -o build/libCastCorners.dylib
 echo "编译完成：build/"

@@ -44,6 +44,10 @@ if [[ "$CAST_ARCH" == "x86_64" ]]; then
 fi
 CAST_BUILD_JDK_PATH="$CAST_BUILD_JDK" "$CAST_PROJECT/build.sh"
 cp -R "$CAST_PROJECT/build/." "$CAST_RESOURCES/app/build/"
+clang -dynamiclib -fobjc-arc -O2 -target "$CAST_ARCH-apple-macos13.0" \
+    -I "$CAST_BUILD_JDK/include" -I "$CAST_BUILD_JDK/include/darwin" \
+    -framework Cocoa -framework QuartzCore "$CAST_PROJECT/packaging/NativeWindowCorners.m" \
+    -o "$CAST_RESOURCES/app/build/libCastCorners.dylib"
 mkdir -p "$CAST_RESOURCES/app/vendor/release/HOScrcpy/libs"
 for jar in "$CAST_PROJECT/vendor/release/HOScrcpy/libs/"*.jar; do
     case "$jar" in

@@ -725,8 +725,16 @@ public final class CastAppearance {
                     frame.scale(scaleX, scaleY);
                     frame.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(),
                         PHONE_CORNER_ARC, PHONE_CORNER_ARC));
+                    // This image is already our backbuffer. Swing's shared (volatile) buffer
+                    // must not participate in composition of a translucent native window.
+                    RepaintManager manager = RepaintManager.currentManager(this);
+                    boolean buffered = manager.isDoubleBufferingEnabled();
+                    manager.setDoubleBufferingEnabled(false);
                     try { super.paint(frame); }
-                    finally { frame.dispose(); }
+                    finally {
+                        manager.setDoubleBufferingEnabled(buffered);
+                        frame.dispose();
+                    }
                     g.setComposite(AlphaComposite.Src);
                     g.drawImage(compactFrame, 0, 0, getWidth(), getHeight(), null);
                 } else {
@@ -2709,12 +2717,20 @@ public final class CastAppearance {
         private Dimension expandedMinimum;
         private int expandedState;
         private double ratio = 0.45;
+        private Dimension cornerSize;
         SidebarWindowSize(Window window, MultiFunctionLabel display) {
             this.window = window;
             this.display = display;
         }
         void update(boolean collapsed, boolean dark) {
-            if (dark || (window.getExtendedState() & JFrame.ICONIFIED) != 0) return;
+            if (dark) {
+                if (cornerSize != null) {
+                    NativeWindowCorners.apply(window, window.getTitle(), 0);
+                    cornerSize = null;
+                }
+                return;
+            }
+            if ((window.getExtendedState() & JFrame.ICONIFIED) != 0) return;
             if (!collapsed) {
                 if (expandedBounds != null) {
                     window.setMinimumSize(expandedMinimum);
@@ -2722,6 +2738,7 @@ public final class CastAppearance {
                     setUndecoratedQuietly(window, false, expandedBounds);
                     window.setExtendedState(expandedState);
                     expandedBounds = null;
+                    cornerSize = null;
                 }
                 return;
             }
@@ -2740,9 +2757,9 @@ public final class CastAppearance {
                 setUndecoratedQuietly(window, true, contentBounds);
             }
             if (!window.isUndecorated()) setUndecoratedQuietly(window, true, window.getBounds());
-            // macOS supports transparent windows, but not AWT's setShape API.
-            // Clip the entire content hierarchy so the desktop shows through the corners.
-            if (window.getBackground().getAlpha() != 0) window.setBackground(new Color(0, 0, 0, 0));
+            // Keep a native opaque surface. Per-pixel translucent surfaces can disappear
+            // between presentations on macOS, with both OpenGL and Metal.
+            if (!Color.BLACK.equals(window.getBackground())) window.setBackground(Color.BLACK);
             if (window.getExtendedState() != JFrame.NORMAL) window.setExtendedState(JFrame.NORMAL);
             BufferedImage image = display.getImage();
             if (image != null) ratio = (double) image.getWidth() / image.getHeight();
@@ -2768,6 +2785,10 @@ public final class CastAppearance {
             int y = Math.max(usable.y, Math.min(window.getY(), usable.y + usable.height - height));
             Rectangle compact = new Rectangle(x, y, width, height);
             if (!window.getBounds().equals(compact)) window.setBounds(compact);
+            if (!window.getSize().equals(cornerSize)) {
+                cornerSize = window.getSize();
+                NativeWindowCorners.apply(window, window.getTitle(), PHONE_CORNER_ARC / 2.0);
+            }
         }
     }
 
@@ -3033,7 +3054,9 @@ public final class CastAppearance {
         }
         @Override protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
-            g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), PHONE_CORNER_ARC, PHONE_CORNER_ARC));
+            if (controlledWindow == null || !controlledWindow.isUndecorated()
+                    || controlledWindow.getBackground().getAlpha() == 0)
+                g.clip(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), PHONE_CORNER_ARC, PHONE_CORNER_ARC));
             BufferedImage shown = display != null ? display : getImage();
             if (shown != null) {
                 // PhoneStage fits the aspect ratio once; fitting again loses edge pixels.

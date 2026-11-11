@@ -71,7 +71,7 @@ public final class SidebarPaintTest {
             for (int x : new int[]{0, screenshot.getWidth() - 1}) {
                 for (int y : new int[]{0, screenshot.getHeight() - 1}) {
                     if ((screenshot.getRGB(x, y) >>> 24) != 0)
-                        throw new AssertionError("Compact window corner must reveal the desktop");
+                        throw new AssertionError("Native rounded corners must reveal the desktop");
                 }
             }
             double scale = (double) screenshot.getWidth() / window[0].getWidth();
@@ -89,7 +89,7 @@ public final class SidebarPaintTest {
                     rightArrow |= !sameColor(screenshot.getRGB(x, y), center);
             }
             if (!rightArrow) throw new AssertionError("Right expand arrow missing");
-            System.out.println("PASS: native compact window has no black gutters or shadow, transparent corners and only the right arrow");
+            System.out.println("PASS: native compact window has no black gutters or shadow, native transparent corners and only the right arrow");
         } catch (Throwable error) { error.printStackTrace(); System.exit(1); }
         finally {
             try { SwingUtilities.invokeAndWait(() -> { if (window[0] != null) window[0].dispose(); }); }

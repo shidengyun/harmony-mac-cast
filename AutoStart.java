@@ -14,6 +14,16 @@ public class AutoStart {
     }
 
     public static void main(String[] args) {
+        // Select before AWT initializes. The Intel Java 17 default is OpenGL;
+        // its translucent window surface intermittently presents empty frames.
+        if (System.getProperty("os.name", "").startsWith("Mac")
+                && System.getProperty("sun.java2d.metal") == null
+                && System.getProperty("sun.java2d.opengl") == null) {
+            System.setProperty("sun.java2d.metal", "true");
+            System.setProperty("sun.java2d.opengl", "false");
+        }
+        System.out.println("CAST_PIPELINE metal=" + System.getProperty("sun.java2d.metal")
+            + " opengl=" + System.getProperty("sun.java2d.opengl"));
         SwingUtilities.invokeLater(() -> {
             CastAppearance.installDefaults();
             final MainForm viewer = new CastAppearance.Window();
