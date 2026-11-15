@@ -22,6 +22,8 @@ if [[ -e "$CAST_DESTINATION" || -L "$CAST_DESTINATION" ]]; then
     mv "$CAST_DESTINATION" "$CAST_ROOT/dist/backups/desktop-$CAST_APP_NAME-$(date +%Y%m%d-%H%M%S)-$$.app"
 fi
 mv "$CAST_COPY_STAGING/$CAST_APP_NAME.app" "$CAST_DESTINATION"
+# Finder can add this metadata after the app lands on Desktop; it is not part of code data.
+xattr -d com.apple.FinderInfo "$CAST_DESTINATION" 2>/dev/null || true
 # File Provider adds desktop metadata; verify signed code and resources normally.
 codesign --verify --deep "$CAST_DESTINATION"
 echo "已同步到桌面：$CAST_DESTINATION"

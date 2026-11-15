@@ -3098,12 +3098,12 @@ public final class CastAppearance {
      * Low-latency H.264 decoder: single-threaded decode with full-resolution RGB output.
      * Replaces the upstream decode so frames render off the EDT without accumulating latency.
      */
-    static final class CastDecoder {
+    static final class CastDecoder implements AutoCloseable {
         private final AVCodecContext codecCtx;
         private final AVCodecParserContext parser;
         private final AVFrame frame = av_frame_alloc();
         private final AVFrame frameRGB = av_frame_alloc();
-        private AVPacket packet = av_packet_alloc();
+        private final AVPacket packet = av_packet_alloc();
         private SwsContext sws;
         private BufferedImage output;
         private int inW = -1, inH = -1, inFormat = -1;
@@ -3113,31 +3113,31 @@ public final class CastAppearance {
             codecCtx = avcodec_alloc_context3(codec);
             parser = av_parser_init(AV_CODEC_ID_H264);
             avcodec_open2(codecCtx, codec, (PointerPointer<Pointer>) null);
-            av_new_packet(packet, 3000);
         }
 
         /** Decodes one H.264 chunk and returns the newest frame, or null when none was ready. */
         BufferedImage feed(byte[] h264) {
-            ByteBuffer data = ByteBuffer.allocate(h264.length).put(h264);
-            int curSize = h264.length;
-            IntPointer pktSize = new IntPointer(packet.size());
-            BytePointer tempBp = new BytePointer();
             BufferedImage result = null;
-            while (curSize > 0) {
-                data.flip();
-                BytePointer dataPointer = new BytePointer(data);
-                int len = av_parser_parse2(parser, codecCtx, tempBp, pktSize, dataPointer, curSize,
-                    AV_NOPTS_VALUE, AV_NOPTS_VALUE, AV_NOPTS_VALUE);
-                packet = packet.size(pktSize.get());
-                data.position(len);
-                data = data.compact();
-                curSize -= len;
-                if (pktSize.get() == 0) continue;
-                packet = packet.data(tempBp);
-                avcodec_send_packet(codecCtx, packet);
-                while (avcodec_receive_frame(codecCtx, frame) == 0) {
-                    BufferedImage img = convert(frame);
-                    if (img != null) result = img;
+            try (BytePointer input = new BytePointer(h264);
+                 IntPointer packetSize = new IntPointer(1)) {
+                BytePointer packetData = new BytePointer();
+                int offset = 0;
+                while (offset < h264.length) {
+                    packetSize.put(0);
+                    int parsed = av_parser_parse2(parser, codecCtx, packetData, packetSize,
+                        input.position(offset), h264.length - offset,
+                        AV_NOPTS_VALUE, AV_NOPTS_VALUE, AV_NOPTS_VALUE);
+                    if (parsed <= 0) break;
+                    offset += parsed;
+                    int size = packetSize.get();
+                    if (size == 0) continue;
+                    packet.data(packetData);
+                    packet.size(size);
+                    avcodec_send_packet(codecCtx, packet);
+                    while (avcodec_receive_frame(codecCtx, frame) == 0) {
+                        BufferedImage image = convert(frame);
+                        if (image != null) result = image;
+                    }
                 }
             }
             return result;
@@ -3163,7 +3163,7 @@ public final class CastAppearance {
             frameRGB.data(0).get(buffer.getData());
             return output;
         }
-        void close() {
+        public void close() {
             av_packet_free(packet);
             av_parser_close(parser);
             avcodec_free_context(codecCtx);
