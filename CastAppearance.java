@@ -561,12 +561,16 @@ public final class CastAppearance {
         MultiFunctionLabel display = rotating;
         CaptureConnection connectionCheck = new CaptureConnection(hdcPath());
         window.connection = connectionCheck;
+        boolean usbFallback = "--auto".equals(System.getProperty("cast.connectionMode", "--auto"));
         window.recovery = new CaptureRecovery(new CaptureRecovery.Backend() {
             public CaptureRecovery.Health probe(CaptureRecovery.Target target, long token, boolean checkService) throws Exception {
                 CaptureSession session = window.captureSession;
                 return connectionCheck.probe(target,
                     session != null && session.token == token ? session.remote : null,
                     session != null && session.imageMode, checkService);
+            }
+            public CaptureRecovery.Target usbFallback(CaptureRecovery.Target target) throws Exception {
+                return usbFallback ? connectionCheck.usbFallback(target) : null;
             }
             public void restart(CaptureRecovery.Target target, long token) {
                 SwingUtilities.invokeLater(() -> {
@@ -1301,9 +1305,8 @@ public final class CastAppearance {
             long now = System.currentTimeMillis();
             // Poll in the background: doClick animates the button and blocks this EDT for its press duration.
             if (++window.refreshTicks % 8 == 0) refreshDevices.accept(false);
-            Object selected = devices.getSelectedItem();
-            boolean wireless = selected instanceof utils.entity.Device &&
-                ((utils.entity.Device) selected).getSn().contains(":");
+            CaptureRecovery.Target activeTarget = window.recovery.target();
+            boolean wireless = activeTarget != null && activeTarget.sn.contains(":");
             BufferedImage shown = display.getImage();
             String resolution = "";
             if (ready) {
@@ -3099,6 +3102,7 @@ public final class CastAppearance {
      * Replaces the upstream decode so frames render off the EDT without accumulating latency.
      */
     static final class CastDecoder implements AutoCloseable {
+        private static final byte[] PARSER_PADDING = new byte[AV_INPUT_BUFFER_PADDING_SIZE];
         private final AVCodecContext codecCtx;
         private final AVCodecParserContext parser;
         private final AVFrame frame = av_frame_alloc();
@@ -3118,8 +3122,9 @@ public final class CastAppearance {
         /** Decodes one H.264 chunk and returns the newest frame, or null when none was ready. */
         BufferedImage feed(byte[] h264) {
             BufferedImage result = null;
-            try (BytePointer input = new BytePointer(h264);
+            try (BytePointer input = new BytePointer(h264.length + (long) PARSER_PADDING.length);
                  IntPointer packetSize = new IntPointer(1)) {
+                input.put(h264).position(h264.length).put(PARSER_PADDING);
                 BytePointer packetData = new BytePointer();
                 int offset = 0;
                 while (offset < h264.length) {
@@ -3127,9 +3132,10 @@ public final class CastAppearance {
                     int parsed = av_parser_parse2(parser, codecCtx, packetData, packetSize,
                         input.position(offset), h264.length - offset,
                         AV_NOPTS_VALUE, AV_NOPTS_VALUE, AV_NOPTS_VALUE);
-                    if (parsed <= 0) break;
-                    offset += parsed;
                     int size = packetSize.get();
+                    // A new frame boundary can emit the buffered packet before consuming input.
+                    if (parsed < 0 || (parsed == 0 && size == 0)) break;
+                    offset += parsed;
                     if (size == 0) continue;
                     packet.data(packetData);
                     packet.size(size);

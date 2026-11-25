@@ -57,16 +57,27 @@ final class CaptureConnection {
     /** Discover USB/Wi-Fi targets and keep USB phones' WLAN addresses selectable after unplugging. */
     List<Device> discoverLocalDevices() throws Exception {
         Map<String, Device> found = new LinkedHashMap<>();
+        List<String> tcpTargets = new ArrayList<>();
         Map<String, String> liveUsb = new HashMap<>();
         boolean changed = false;
         for (String line : run("-s", "127.0.0.1:8710", "list", "targets", "-v").split("\\R")) {
             String[] parts = line.trim().split("\\s+");
             if (parts.length < 3 || !parts[2].equals("Connected")) continue;
             String serial = parts[0];
+            if (!parts[1].equals("USB")) {
+                tcpTargets.add(serial);
+                continue;
+            }
             found.put(serial, new Device(serial));
-            if (!parts[1].equals("USB")) continue;
             String address;
-            try { address = wlanAddress(run("-s", "127.0.0.1:8710", "-t", serial, "shell", "ifconfig", "wlan0")); }
+            try {
+                String wlan = run("-s", "127.0.0.1:8710", "-t", serial, "shell", "ifconfig", "wlan0");
+                address = wlanAddress(wlan);
+                if (address == null) {
+                    address = wlanAddress(run("-s", "127.0.0.1:8710", "-t", serial,
+                        "shell", "ip", "-4", "addr", "show", "dev", "wlan0"));
+                }
+            }
             catch (Exception error) { continue; }
             if (address == null) continue;
             liveUsb.put(address, serial);
@@ -82,7 +93,8 @@ final class CaptureConnection {
             try { saveUsbWireless(); }
             catch (IOException error) { System.err.println("保存 USB 手机无线地址失败: " + error.getClass().getSimpleName()); }
         }
-        // Keep remembered addresses visible even before their TCP connection is established.
+        for (String serial : tcpTargets) found.putIfAbsent(serial, new Device(serial));
+        // Keep remembered addresses below the attached devices, even before TCP is established.
         for (String address : new java.util.TreeSet<>(usbWireless.values()))
             found.putIfAbsent(address, new Device(address));
         Path remembered = stateDirectory.resolve("wireless-device.txt");
@@ -93,6 +105,19 @@ final class CaptureConnection {
             } catch (IOException error) { /* Device discovery can continue without this file. */ }
         }
         return new ArrayList<>(found.values());
+    }
+
+    CaptureRecovery.Target usbFallback(CaptureRecovery.Target wifi) throws Exception {
+        if (!"127.0.0.1".equals(wifi.ip) || !validWirelessAddress(wifi.sn)) return null;
+        String serial = connectedUsb.get(wifi.sn);
+        if (serial == null) {
+            List<String> matches = usbWireless.entrySet().stream()
+                .filter(entry -> wifi.sn.equals(entry.getValue())).map(Map.Entry::getKey).toList();
+            if (matches.size() != 1) return null;
+            serial = matches.get(0);
+        }
+        CaptureRecovery.Target usb = new CaptureRecovery.Target(serial, wifi.ip);
+        return transport(usb) ? usb : null;
     }
 
     static String wlanAddress(String output) {

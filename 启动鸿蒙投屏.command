@@ -59,10 +59,19 @@ cast_connected() {
 }
 cast_reconnect_wifi() {
     local target="$1"
-    if cast_hdc list targets -v | awk -v target="$target" '$1 == target && $3 == "Offline" { found = 1 } END { exit !found }'; then
+    if cast_hdc list targets -v | awk -v target="$target" '$1 == target { found = 1 } END { exit !found }'; then
         cast_hdc tconn "$target" -remove || true
     fi
     cast_hdc tconn "$target" || true
+}
+cast_wifi_usable() {
+    cast_hdc -t "$1" shell echo HARMONY_CAST_ALIVE | awk '
+        $1 == "HARMONY_CAST_ALIVE" && NF == 1 { found = 1 } END { exit !found }'
+}
+cast_try_wifi() {
+    cast_wifi_usable "$1" && return 0
+    cast_reconnect_wifi "$1"
+    cast_wifi_usable "$1"
 }
 cast_target_valid() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:8710$ ]]
@@ -89,10 +98,9 @@ cast_mac_ssid() {
 cast_first_ipv4() {
     grep -oE 'inet[[:space:]]+(addr:)?[0-9]{1,3}(\.[0-9]{1,3}){3}' | {
         found=""
-        while read -r token; do
-            ip="${token#* }"
+        while read -r _type ip; do
             ip="${ip#addr:}"
-            if cast_ip_valid "$ip" && [[ "$ip" != 127.* && "$ip" != "0.0.0.0" ]]; then
+            if cast_ip_valid "$ip" && [[ "$ip" != 127.* && "$ip" != 169.254.* && "$ip" != "0.0.0.0" ]]; then
                 found="$ip"
                 break
             fi
@@ -105,7 +113,7 @@ cast_phone_ip() {
     local ip
     ip=$(cast_hdc -t "$serial" shell ifconfig wlan0 2>/dev/null | cast_first_ipv4 || true)
     if [[ -z "$ip" ]]; then
-        ip=$(cast_hdc -t "$serial" shell ifconfig 2>/dev/null | cast_first_ipv4 || true)
+        ip=$(cast_hdc -t "$serial" shell ip -4 addr show dev wlan0 2>/dev/null | cast_first_ipv4 || true)
     fi
     printf '%s' "$ip"
 }
@@ -184,26 +192,37 @@ if [[ "$CAST_MODE" == "--diagnose" ]]; then
     exit 0
 fi
 
+CAST_SELECTED_WIFI=""
 if [[ "$CAST_MODE" == "--wireless" || "$CAST_MODE" == "--auto" ]]; then
-    if cast_target_valid "$CAST_WIRELESS_TARGET" && ! cast_connected "$CAST_WIRELESS_TARGET"; then
-        # Address prefixes alone do not determine reachability (e.g. a /21 LAN).
-        cast_reconnect_wifi "$CAST_WIRELESS_TARGET"
-    fi
-    if ! cast_target_valid "$CAST_WIRELESS_TARGET" || ! cast_connected "$CAST_WIRELESS_TARGET"; then
+    # Address prefixes alone do not determine reachability (e.g. a /21 LAN).
+    if cast_target_valid "$CAST_WIRELESS_TARGET" && cast_try_wifi "$CAST_WIRELESS_TARGET"; then
+        CAST_SELECTED_WIFI="$CAST_WIRELESS_TARGET"
+    else
         CAST_USB_TARGETS=$(cast_hdc list targets -v | awk '$2 == "USB" && $3 == "Connected" { print $1 }')
         if [[ -n "$CAST_USB_TARGETS" && "$CAST_USB_TARGETS" != *$'\n'* ]]; then
             CAST_PHONE_IP=$(cast_phone_ip "$CAST_USB_TARGETS")
             if cast_ip_valid "$CAST_PHONE_IP"; then
-                CAST_WIRELESS_TARGET="$CAST_PHONE_IP:8710"
-                echo "正在配置 Wi-Fi 投屏，请保持手机和 Mac 在同一局域网。"
-                cast_hdc -t "$CAST_USB_TARGETS" tmode port 8710 || true
-                cast_reconnect_wifi "$CAST_WIRELESS_TARGET"
+                CAST_PHONE_WIFI="$CAST_PHONE_IP:8710"
+                if cast_wifi_usable "$CAST_PHONE_WIFI"; then
+                    CAST_SELECTED_WIFI="$CAST_PHONE_WIFI"
+                else
+                    echo "正在配置 Wi-Fi 投屏，请保持手机和 Mac 在同一局域网。"
+                    cast_hdc -t "$CAST_USB_TARGETS" tmode port 8710 || true
+                    cast_reconnect_wifi "$CAST_PHONE_WIFI"
+                    if cast_wifi_usable "$CAST_PHONE_WIFI"; then CAST_SELECTED_WIFI="$CAST_PHONE_WIFI"; fi
+                fi
             else
                 echo "未能读取手机 WLAN 地址：请确认手机已开启并连接 WiFi（USB 已连接）。"
             fi
         fi
+        if [[ -z "$CAST_SELECTED_WIFI" ]]; then
+            CAST_TCP_TARGET=$(cast_hdc list targets -v | awk '$2 == "TCP" && $3 == "Connected" { print $1 }')
+            if cast_target_valid "$CAST_TCP_TARGET" && cast_wifi_usable "$CAST_TCP_TARGET"; then
+                CAST_SELECTED_WIFI="$CAST_TCP_TARGET"
+            fi
+        fi
     fi
-    if [[ "$CAST_MODE" == "--wireless" ]] && { ! cast_target_valid "$CAST_WIRELESS_TARGET" || ! cast_connected "$CAST_WIRELESS_TARGET"; }; then
+    if [[ "$CAST_MODE" == "--wireless" && -z "$CAST_SELECTED_WIFI" ]]; then
         cast_fail "无线连接未成功。
 
 请按顺序检查：
@@ -212,10 +231,18 @@ if [[ "$CAST_MODE" == "--wireless" || "$CAST_MODE" == "--auto" ]]; then
 3) 重新运行本入口（会自动读取手机当前 WiFi 地址）
 4) 仍失败时：路由器若开启「AP 隔离 / 访客网络」会阻止设备互相访问；也可在 macOS 系统设置中临时关闭防火墙后重试。"
     fi
-    if cast_target_valid "$CAST_WIRELESS_TARGET" && cast_connected "$CAST_WIRELESS_TARGET"; then
-        printf '%s\n' "$CAST_WIRELESS_TARGET" > "$CAST_STATE/wireless-device.txt"
-        CAST_JAVA_OPTIONS+=("-Dcast.device=$CAST_WIRELESS_TARGET")
+    if [[ -n "$CAST_SELECTED_WIFI" ]]; then
+        CAST_JAVA_OPTIONS+=("-Dcast.device=$CAST_SELECTED_WIFI")
         echo "Wi-Fi 已连接，可以拔掉数据线。"
+        CAST_USB_TARGETS=""
     fi
+elif [[ "$CAST_MODE" == "--usb" ]]; then
+    CAST_USB_TARGETS=$(cast_hdc list targets -v | awk '$2 == "USB" && $3 == "Connected" { print $1 }')
 fi
+# Remembered Wi-Fi entries are selectable even when offline, so the viewer
+# needs the USB serial to auto-connect when it is the only connected USB device.
+if [[ -n "$CAST_USB_TARGETS" && "$CAST_USB_TARGETS" != *$'\n'* ]]; then
+    CAST_JAVA_OPTIONS+=("-Dcast.device=$CAST_USB_TARGETS")
+fi
+CAST_JAVA_OPTIONS+=("-Dcast.connectionMode=$CAST_MODE")
 exec "$CAST_JAVA" "${CAST_JAVA_OPTIONS[@]}" -cp "$CAST_ROOT/build:$CAST_ROOT/vendor/hosScrcpy-1.0.18-beta.jar:$CAST_ROOT/vendor/release/HOScrcpy/libs/*" AutoStart

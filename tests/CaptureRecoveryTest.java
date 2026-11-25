@@ -5,6 +5,7 @@ import java.util.List;
 public final class CaptureRecoveryTest {
     static final class Backend implements CaptureRecovery.Backend {
         CaptureRecovery.Health health = CaptureRecovery.Health.HEALTHY;
+        CaptureRecovery.Target fallback;
         final List<Long> starts = new ArrayList<>();
         final List<String> devices = new ArrayList<>();
         boolean serviceChecked;
@@ -12,6 +13,7 @@ public final class CaptureRecoveryTest {
             serviceChecked |= service;
             return health;
         }
+        public CaptureRecovery.Target usbFallback(CaptureRecovery.Target target) { return fallback; }
         public void restart(CaptureRecovery.Target target, long token) {
             starts.add(token); devices.add(target.sn);
         }
@@ -84,6 +86,19 @@ public final class CaptureRecoveryTest {
         check(late.starts.size() == 2 && guarded.state() == CaptureRecovery.State.CONNECTING,
             "late probes and failures cannot affect a newly selected phone");
         guarded.close();
-        System.out.println("PASS: static screen, transport loss/restoration, service failure, retry backoff, stop, switch, stale callbacks, startup timeout");
+
+        Backend paired = new Backend();
+        paired.fallback = target("paired-usb");
+        CaptureRecovery switching = new CaptureRecovery(paired, Runnable::run);
+        long wifi = switching.start(target("192.0.2.25:8710"), 0);
+        switching.frame(wifi, 1);
+        paired.health = CaptureRecovery.Health.TRANSPORT_DOWN;
+        switching.tick(9000);
+        check(switching.isCurrent(wifi), "one failed Wi-Fi check must not switch transports");
+        switching.tick(13000);
+        check(paired.devices.equals(List.of("192.0.2.25:8710", "paired-usb")) && !switching.isCurrent(wifi),
+            "confirmed Wi-Fi loss must start the paired USB transport with a new session token");
+        switching.close();
+        System.out.println("PASS: static screen, transport loss/restoration, USB fallback, service failure, retry backoff, stop, switch, stale callbacks, startup timeout");
     }
 }

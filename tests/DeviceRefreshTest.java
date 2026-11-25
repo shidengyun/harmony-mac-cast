@@ -101,9 +101,16 @@ public final class DeviceRefreshTest {
             poll(window[0], timer);
             check(devices.getItemCount() == 2 && ((utils.entity.Device) devices.getSelectedItem()).getSn().equals("phone-two"),
                 "Changed discovery must update devices and retain the selected phone");
+            Files.writeString(fixture.resolve("devices"), "phone-two TCP Connected localhost\nUSB-TEST USB Connected localhost\n");
+            poll(window[0], timer);
+            check(devices.getItemCount() == 3 && devices.getItemAt(0).getSn().equals("USB-TEST")
+                    && devices.getItemAt(2).getSn().equals("192.0.2.25:8710")
+                    && ((utils.entity.Device) devices.getSelectedItem()).getSn().equals("phone-two"),
+                "A USB hotplug must add its Wi-Fi address below the connected devices and retain the selection");
             Files.writeString(fixture.resolve("devices"), "");
             poll(window[0], timer);
-            check(devices.getItemCount() == 0, "Disconnected devices must disappear when no capture is active");
+            check(devices.getItemCount() == 1 && devices.getItemAt(0).getSn().equals("192.0.2.25:8710"),
+                "Only the remembered Wi-Fi address remains after unplugging USB");
             int enabledBefore = enabledChanges.get();
             SwingUtilities.invokeAndWait(() -> refresh.doClick(0));
             awaitDiscovery(window[0]);
@@ -124,7 +131,12 @@ public final class DeviceRefreshTest {
             Files.writeString(fixture.resolve("devices"), "phone-one TCP Connected localhost\nphone-two TCP Connected localhost\n");
             Files.writeString(fixture.resolve("queries"), "");
             Path hdc = fixture.resolve("hdc");
-            Files.writeString(hdc, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CAST_STATE_DIR/queries\"\ncat \"$CAST_STATE_DIR/devices\"\n");
+            Files.writeString(hdc, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CAST_STATE_DIR/queries\"\n"
+                + "case \"$*\" in\n"
+                + "*'list targets'*) cat \"$CAST_STATE_DIR/devices\";;\n"
+                + "*'shell ifconfig wlan0'*) echo 'inet 192.0.2.25 netmask 255.255.255.0';;\n"
+                + "*'tmode port 8710'*) echo 'Set device run mode successful';;\n"
+                + "esac\n");
             hdc.toFile().setExecutable(true);
             ProcessBuilder child = new ProcessBuilder(System.getProperty("java.home") + "/bin/java", "-cp",
                 System.getProperty("java.class.path"), DeviceRefreshTest.class.getName(), fixture.toString());

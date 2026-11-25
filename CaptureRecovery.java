@@ -12,6 +12,7 @@ final class CaptureRecovery implements AutoCloseable {
     }
     interface Backend {
         Health probe(Target target, long token, boolean checkService) throws Exception;
+        default Target usbFallback(Target target) throws Exception { return null; }
         void restart(Target target, long token);
     }
     private final Backend backend;
@@ -85,6 +86,7 @@ final class CaptureRecovery implements AutoCloseable {
         final long candidate;
         final Target selected;
         final boolean checkService;
+        final boolean checkFallback;
         synchronized (this) {
             if (!active || state == State.FAILED || probing || now < nextProbe) return;
             nextProbe = now + 4000;
@@ -92,44 +94,56 @@ final class CaptureRecovery implements AutoCloseable {
             candidate = token;
             selected = target;
             checkService = ready && now - lastFrameAt >= 8000;
+            checkFallback = transportFailures > 0;
             probing = true;
         }
         worker.execute(() -> {
             Health health;
             try { health = backend.probe(selected, candidate, checkService); }
             catch (Exception error) { health = Health.TRANSPORT_DOWN; }
-            boolean restart = false;
-            long newToken = candidate;
+            Target fallback = null;
+            if (health == Health.TRANSPORT_DOWN && checkFallback) {
+                try { fallback = backend.usbFallback(selected); }
+                catch (Exception error) { /* Continue waiting for the original transport. */ }
+            }
+            final Target restartTarget;
+            final long newToken;
             synchronized (CaptureRecovery.this) {
                 if (!isCurrent(candidate)) return;
                 probing = false;
                 if (health == Health.TRANSPORT_DOWN) {
-                    if (++transportFailures >= 2) state = State.OFFLINE;
-                    else if (state == State.CONNECTED) state = State.CHECKING;
-                    return;
-                }
-                transportFailures = 0;
-                if (health == Health.SERVICE_DOWN) {
-                    if (++serviceFailures >= 2 && state != State.RECOVERING) {
-                        state = State.RECOVERING;
-                        retryAt = now + retryDelay();
+                    if (++transportFailures < 2) {
+                        if (state == State.CONNECTED) state = State.CHECKING;
+                        return;
                     }
+                    if (fallback == null) {
+                        state = State.OFFLINE;
+                        return;
+                    }
+                    target = fallback;
+                    retries = 0;
+                    retryAt = now;
                 } else {
-                    serviceFailures = 0;
-                    if (state == State.CHECKING) state = hasFrame ? State.CONNECTED : State.CONNECTING;
-                }
-                boolean startupTimedOut = !hasFrame && now - startedAt >= 45000;
-                if (state == State.OFFLINE || state == State.RECOVERING || startupTimedOut) {
-                    if (now >= retryAt) {
-                        ++retries;
-                        retryAt = now + retryDelay();
-                        prepareAttempt(now);
-                        newToken = token;
-                        restart = true;
+                    transportFailures = 0;
+                    if (health == Health.SERVICE_DOWN) {
+                        if (++serviceFailures >= 2 && state != State.RECOVERING) {
+                            state = State.RECOVERING;
+                            retryAt = now + retryDelay();
+                        }
+                    } else {
+                        serviceFailures = 0;
+                        if (state == State.CHECKING) state = hasFrame ? State.CONNECTED : State.CONNECTING;
                     }
+                    boolean startupTimedOut = !hasFrame && now - startedAt >= 45000;
+                    if (!(state == State.OFFLINE || state == State.RECOVERING || startupTimedOut) || now < retryAt) return;
+                    ++retries;
+                    retryAt = now + retryDelay();
                 }
+                prepareAttempt(now);
+                newToken = token;
+                restartTarget = target;
             }
-            if (restart) backend.restart(selected, newToken);
+            backend.restart(restartTarget, newToken);
         });
     }
     public void close() {

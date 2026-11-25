@@ -23,21 +23,31 @@ public final class UsbWirelessDiscoveryTest {
                 + "*'list targets -v'*) cat \"$fixture/targets\";;\n"
                 + "*'-t USB-A shell ifconfig wlan0'*) if [ -f \"$fixture/slow\" ]; then sleep 10; fi; cat \"$fixture/wlanA\";;\n"
                 + "*'-t USB-B shell ifconfig wlan0'*) cat \"$fixture/wlanB\";;\n"
+                + "*'-t USB-B shell ip -4 addr show dev wlan0'*) echo 'inet 192.0.2.26/24';;\n"
+                + "*'-t USB-A shell echo HARMONY_CAST_ALIVE'*) if [ -f \"$fixture/usbAlive\" ]; then echo HARMONY_CAST_ALIVE; fi;;\n"
                 + "*'tmode port 8710'*) echo 'Set device run mode successful';;\n"
                 + "*'tconn '*' -remove'*) echo removed;;\n"
                 + "*'tconn '*) touch \"$fixture/tcpAlive\"; echo connected;;\n"
                 + "*'shell echo HARMONY_CAST_ALIVE'*) if [ -f \"$fixture/tcpAlive\" ]; then echo HARMONY_CAST_ALIVE; fi;;\n"
                 + "esac\n");
             executable.toFile().setExecutable(true);
-            Files.writeString(directory.resolve("targets"), "USB-A USB Connected localhost\nUSB-B USB Connected localhost\n"
-                + "192.0.2.25:8710 TCP Connected localhost\n192.0.2.26:8710 TCP Offline localhost\nUSB-OFF USB Offline localhost\n");
+            Files.writeString(directory.resolve("targets"), "192.0.2.25:8710 TCP Connected localhost\n"
+                + "USB-A USB Connected localhost\nUSB-B USB Connected localhost\n"
+                + "192.0.2.26:8710 TCP Offline localhost\nUSB-OFF USB Offline localhost\n");
             Files.writeString(directory.resolve("wlanA"), "wlan0: inet 192.0.2.25 netmask 255.255.255.0\n");
-            Files.writeString(directory.resolve("wlanB"), "wlan0: inet addr:192.0.2.26 Mask:255.255.255.0\n");
+            Files.writeString(directory.resolve("wlanB"), "wlan0: no address returned by ifconfig\n");
             CaptureConnection connection = new CaptureConnection(executable.toString(), directory, address -> false);
             List<Device> devices = connection.discoverLocalDevices();
             check(devices.size() == 4 && contains(devices, "USB-A") && contains(devices, "USB-B")
                 && contains(devices, "192.0.2.25:8710") && contains(devices, "192.0.2.26:8710"),
                 "each USB phone must expose its Wi-Fi address without duplicates or offline USB targets");
+            check(devices.get(0).getSn().equals("USB-A") && devices.get(1).getSn().equals("USB-B"),
+                "USB entries must precede Wi-Fi entries regardless of hdc target order");
+            Files.createFile(directory.resolve("usbAlive"));
+            CaptureRecovery.Target wifi = new CaptureRecovery.Target("192.0.2.25:8710", "127.0.0.1");
+            check(connection.usbFallback(wifi).sn.equals("USB-A"), "Wi-Fi must fall back to its paired USB phone");
+            Files.delete(directory.resolve("usbAlive"));
+            check(connection.usbFallback(wifi) == null, "an unreachable USB phone is not a fallback");
             connection.discoverLocalDevices();
             String commands = Files.readString(directory.resolve("commands"));
             check(commands.lines().filter(line -> line.contains("tmode port")).count() == 2,

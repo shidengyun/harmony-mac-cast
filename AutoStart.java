@@ -34,7 +34,8 @@ public class AutoStart {
                 try {
                     JComboBox<?> devices = field(viewer, "cmbSn", JComboBox.class);
                     JButton start = field(viewer, "btnEnterScreenCapture", JButton.class);
-                    int selectedIndex = devices.getItemCount() == 1 ? 0 : -1;
+                    int selectedIndex = System.getProperty("cast.connectionMode") == null
+                        && devices.getItemCount() == 1 ? 0 : -1;
                     String preferredDevice = System.getProperty("cast.device");
                     if (preferredDevice != null) {
                         selectedIndex = -1;

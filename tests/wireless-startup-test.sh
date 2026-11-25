@@ -25,8 +25,19 @@ if [[ " $* " == *' HdcCommand '* ]]; then
         tconn)
             if [[ "${3:-}" == '-remove' ]]; then
                 rm -f "$CAST_FIXTURE/offline"
+                if [[ -f "$CAST_FIXTURE/connected" && "$(cat "$CAST_FIXTURE/connected")" == "$2" ]]; then
+                    rm -f "$CAST_FIXTURE/connected"
+                fi
             elif [[ ! -f "$CAST_FIXTURE/unavailable" && ! -f "$CAST_FIXTURE/offline" ]]; then
                 printf '%s\n' "$2" > "$CAST_FIXTURE/connected"
+            fi
+            ;;
+        -t)
+            if [[ "$*" == *'shell echo HARMONY_CAST_ALIVE' && -f "$CAST_FIXTURE/connected" &&
+                ! -f "$CAST_FIXTURE/unavailable" && "$(cat "$CAST_FIXTURE/connected")" == "$2" ]]; then
+                echo HARMONY_CAST_ALIVE
+            elif [[ "$*" == *'shell ip -4 addr show dev wlan0' && -f "$CAST_FIXTURE/wlan" ]]; then
+                printf 'inet %s/24\n' "$(cat "$CAST_FIXTURE/wlan")"
             fi
             ;;
     esac
@@ -48,7 +59,7 @@ export CAST_JAVA_PATH="$CAST_FIXTURE/bin/java" CAST_HDC_PATH="$CAST_FIXTURE/bin/
 launch() { bash "$CAST_TEST_PROJECT/启动鸿蒙投屏.command" "$@" >/dev/null; }
 check_preferred() {
     if ! rg -q -- "^-Dcast.device=$1$" "$CAST_FIXTURE/viewer-args"; then
-        echo "FAIL: startup did not prefer saved Wi-Fi target $1" >&2; exit 1
+        echo "FAIL: startup did not select $1" >&2; exit 1
     fi
 }
 printf '192.0.2.25:8710\n' > "$CAST_STATE_DIR/wireless-device.txt"
@@ -61,10 +72,17 @@ printf '192.0.2.26:8710\n' > "$CAST_STATE_DIR/wireless-device.txt"
 launch --auto
 check_preferred '192.0.2.26:8710'
 launch --usb
-if rg -q -- '^-Dcast.device=' "$CAST_FIXTURE/viewer-args"; then echo 'FAIL: explicit USB ignored'; exit 1; fi
-rm "$CAST_FIXTURE/connected"
+check_preferred 'USB-TEST'
 touch "$CAST_FIXTURE/unavailable"
 launch
-if rg -q -- '^-Dcast.device=' "$CAST_FIXTURE/viewer-args"; then echo 'FAIL: unavailable Wi-Fi selected'; exit 1; fi
+check_preferred 'USB-TEST'
+rg -q -- '^tconn 192.0.2.26:8710 -remove$' "$CAST_FIXTURE/commands" || { echo 'FAIL: stale connected Wi-Fi not removed'; exit 1; }
 [[ "$(cat "$CAST_STATE_DIR/wireless-device.txt")" == '192.0.2.26:8710' ]] || { echo 'FAIL: unavailable Wi-Fi memory lost'; exit 1; }
-echo 'PASS: default Wi-Fi priority, latest remembered phone, shared state, explicit USB, offline fallback preserves memory'
+rm "$CAST_FIXTURE/unavailable" "$CAST_STATE_DIR/wireless-device.txt"
+printf '192.0.2.27\n' > "$CAST_FIXTURE/wlan"
+launch
+check_preferred '192.0.2.27:8710'
+rm "$CAST_FIXTURE/wlan"
+launch
+check_preferred '192.0.2.27:8710'
+echo 'PASS: default Wi-Fi priority, latest remembered phone, shared state, explicit USB, stale Wi-Fi fallback, USB WLAN discovery and connected Wi-Fi'
